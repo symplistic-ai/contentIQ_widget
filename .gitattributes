@@ -1,0 +1,3 @@
+# Prevent README.md from being overwritten during merges
+# Each branch will keep its own version of README.md
+README.md merge=ours
