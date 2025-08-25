@@ -1,6 +1,6 @@
 {
   "name": "contentiq-widget",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "ContentIQ Chat Widget for embedding AI assistants on websites",
   "main": "dist/widget.min.js",
   "files": [
