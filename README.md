@@ -42,11 +42,22 @@ Replace `YOUR_AGENT_ID` and `YOUR_SITE_TOKEN` with the values provided in your C
 - Secure authentication with signed tokens
 - Customizable backend URL
 
-## Version History
+## Development
 
-- v1.0.2 - Update default backend URL and improve configuration documentation
-- v1.0.1 - Minor fixes
-- v1.0.0 - Initial release
+This widget uses a branch-based deployment model:
+
+- `main` - Development branch with latest changes (may be unstable)
+- `prod` - Production branch with stable, tested code
+
+When embedding the widget, reference the `prod` branch for stability:
+```html
+<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@prod/dist/widget.min.js"></script>
+```
+
+For development and testing, you can reference the `main` branch:
+```html
+<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@main/dist/widget.min.js"></script>
+```
 
 ## License
 
