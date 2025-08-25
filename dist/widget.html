@@ -27,7 +27,7 @@
     const params = new URLSearchParams(window.location.search);
     const agentId = params.get('agent_id');
     const token = params.get('token');
-    const backend = params.get('backend') || 'https://api.symplistic.ai';
+    const backend = params.get('backend') || 'http://localhost:1234';
     
     // Set attributes on the root div
     const root = document.getElementById('chat-root');
