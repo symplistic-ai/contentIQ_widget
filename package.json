@@ -1,0 +1,29 @@
+{
+  "name": "contentiq-widget",
+  "version": "1.0.0",
+  "description": "ContentIQ Chat Widget for embedding AI assistants on websites",
+  "main": "dist/widget.min.js",
+  "files": [
+    "dist/widget.min.js",
+    "dist/widget.js",
+    "dist/widget.html"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/symplisticai/contentiq-widget.git"
+  },
+  "keywords": [
+    "chat",
+    "widget",
+    "ai",
+    "assistant",
+    "contentiq"
+  ],
+  "author": "symplistic.ai",
+  "license": "UNLICENSED",
+  "private": true,
+  "bugs": {
+    "url": "https://github.com/symplisticai/contentiq-widget/issues"
+  },
+  "homepage": "https://github.com/symplisticai/contentiq-widget#readme"
+}

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContentIQ Chat</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+    .contentiq_symplisticai_chat {
+      width: 100%;
+      height: 100%;
+      border-radius: 0;
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div class="contentiq_symplisticai_chat" id="chat-root"></div>
+  
+  <script>
+    // Extract query parameters
+    const params = new URLSearchParams(window.location.search);
+    const agentId = params.get('agent_id');
+    const token = params.get('token');
+    const backend = params.get('backend') || 'https://api.symplistic.ai';
+    
+    // Set attributes on the root div
+    const root = document.getElementById('chat-root');
+    if (agentId) root.setAttribute('data-agent', agentId);
+    
+    // Load the widget script
+    const script = document.createElement('script');
+    script.src = 'widget.min.js';
+    if (token) script.setAttribute('data-token', token);
+    if (backend) script.setAttribute('data-backend', backend);
+    document.body.appendChild(script);
+  </script>
+</body>
+</html>
