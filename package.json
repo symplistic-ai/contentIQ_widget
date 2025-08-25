@@ -1,7 +1,7 @@
 {
   "name": "contentiq-widget",
-  "version": "1.0.2",
-  "description": "ContentIQ Chat Widget for embedding AI assistants on websites",
+  "version": "0.0.0-branch-based",
+  "description": "ContentIQ Chat Widget for embedding AI assistants on websites. Uses branch-based deployment (main/prod) instead of semantic versioning.",
   "main": "dist/widget.min.js",
   "files": [
     "dist/widget.min.js",
