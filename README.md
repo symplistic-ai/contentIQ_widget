@@ -9,12 +9,12 @@ A lightweight, customizable chat widget for embedding ContentIQ AI assistants on
 ```html
 <!-- Option 1: Div-based embed (recommended) -->
 <div class="contentiq_symplisticai_chat" data-agent="YOUR_AGENT_ID"></div>
-<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@v1.0.1/dist/widget.min.js" 
+<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@v1.0.2/dist/widget.min.js" 
   data-token="YOUR_SITE_TOKEN"
   data-backend="http://localhost:1234"></script>
 
 <!-- Option 2: iframe-based embed -->
-<iframe src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@v1.0.1/dist/widget.html?agent_id=YOUR_AGENT_ID&token=YOUR_SITE_TOKEN&backend=http://localhost:1234" 
+<iframe src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@v1.0.2/dist/widget.html?agent_id=YOUR_AGENT_ID&token=YOUR_SITE_TOKEN&backend=http://localhost:1234" 
   id="contentiq-chat" 
   style="width: 100%; height: 500px; border: none;" 
   title="ContentIQ Chat Widget" 
@@ -24,7 +24,7 @@ A lightweight, customizable chat widget for embedding ContentIQ AI assistants on
 
 > **Note:** The `data-backend` attribute (or `backend` URL parameter for iframe) lets you specify the backend API endpoint. Use:
 > - `http://localhost:1234` for local development
-> - `https://api.symplistic.ai` for production
+> - `https://backend.contentiq.symplistic.ai` for production
 > - Or any custom backend URL
 
 Replace `YOUR_AGENT_ID` and `YOUR_SITE_TOKEN` with the values provided in your ContentIQ dashboard.
@@ -39,7 +39,8 @@ Replace `YOUR_AGENT_ID` and `YOUR_SITE_TOKEN` with the values provided in your C
 
 ## Version History
 
-- v1.0.1 - Latest release with minor fixes
+- v1.0.2 - Update default backend URL and improve configuration documentation
+- v1.0.1 - Minor fixes
 - v1.0.0 - Initial release
 
 ## License
