@@ -10,7 +10,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/symplisticai/contentiq-widget.git"
+    "url": "git+https://github.com/symplistic-ai/contentIQ_widget.git"
   },
   "keywords": [
     "chat",
@@ -23,7 +23,7 @@
   "license": "UNLICENSED",
   "private": true,
   "bugs": {
-    "url": "https://github.com/symplisticai/contentiq-widget/issues"
+    "url": "https://github.com/symplistic-ai/contentIQ_widget/issues"
   },
-  "homepage": "https://github.com/symplisticai/contentiq-widget#readme"
+  "homepage": "https://github.com/symplistic-ai/contentIQ_widget#readme"
 }
