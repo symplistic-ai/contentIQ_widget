@@ -11,10 +11,10 @@ A lightweight, customizable chat widget for embedding ContentIQ AI assistants on
 <div class="contentiq_symplisticai_chat" data-agent="YOUR_AGENT_ID"></div>
 <script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@prod/dist/widget.min.js" 
   data-token="YOUR_SITE_TOKEN"
-  data-backend="https://backend.contentiq.symplistic.ai"></script>
+  data-backend="http://localhost:1234"></script>
 
 <!-- Option 2: iframe-based embed -->
-<iframe src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@prod/dist/widget.html?agent_id=YOUR_AGENT_ID&token=YOUR_SITE_TOKEN&backend=https://backend.contentiq.symplistic.ai" 
+<iframe src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@prod/dist/widget.html?agent_id=YOUR_AGENT_ID&token=YOUR_SITE_TOKEN&backend=http://localhost:1234" 
   id="contentiq-chat" 
   style="width: 100%; height: 500px; border: none;" 
   title="ContentIQ Chat Widget" 
@@ -22,7 +22,15 @@ A lightweight, customizable chat widget for embedding ContentIQ AI assistants on
 </iframe>
 ```
 
-> **Note:** The `data-backend` attribute (or `backend` URL parameter for iframe) lets you specify a custom backend API endpoint if needed.
+You can also reference a specific version if needed:
+```html
+<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@v1.0.2/dist/widget.min.js" data-token="YOUR_SITE_TOKEN"></script>
+```
+
+> **Note:** The `data-backend` attribute (or `backend` URL parameter for iframe) lets you specify the backend API endpoint. Use:
+> - `http://localhost:1234` for local development
+> - `https://backend.contentiq.symplistic.ai` for production
+> - Or any custom backend URL
 
 Replace `YOUR_AGENT_ID` and `YOUR_SITE_TOKEN` with the values provided in your ContentIQ dashboard.
 
@@ -33,6 +41,23 @@ Replace `YOUR_AGENT_ID` and `YOUR_SITE_TOKEN` with the values provided in your C
 - Copy/feedback buttons
 - Secure authentication with signed tokens
 - Customizable backend URL
+
+## Development
+
+This widget uses a branch-based deployment model:
+
+- `main` - Development branch with latest changes (may be unstable)
+- `prod` - Production branch with stable, tested code
+
+When embedding the widget, reference the `prod` branch for stability:
+```html
+<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@prod/dist/widget.min.js"></script>
+```
+
+For development and testing, you can reference the `main` branch:
+```html
+<script src="https://cdn.jsdelivr.net/gh/symplistic-ai/contentIQ_widget@main/dist/widget.min.js"></script>
+```
 
 ## License
 
