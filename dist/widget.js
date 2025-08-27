@@ -752,27 +752,19 @@ bubble.innerHTML = parseMarkdown(message);
 
 messageContainer.appendChild(bubble);
 
-    // Add action icons only for agent messages (not user messages)
-  if (!isUser) {
-    // Use the server-provided message ID if available
-    // We'll only generate a random UUID if this is not a message from the server
-    // or if we're in a test/development environment
-    let messageId;
-    if (serverMessageId) {
-      // Use the server-provided message ID
-      messageId = serverMessageId;
-      console.log('[contentIQ widget] Using server message ID');
-    } else {
-      // Only generate a random ID if this isn't from a server response
-      // This should only happen during development/testing
-      messageId = crypto.randomUUID();
-      console.warn('[contentIQ widget] Server did not provide message ID, generating local ID');
-    }
+    // Add action icons only for agent messages (not user messages) that have valid message IDs
+  if (!isUser && serverMessageId) {
+    // Use the server-provided message ID
+    const messageId = serverMessageId;
+    console.log('[contentIQ widget] Using server message ID');
     
     bubble.dataset.messageId = messageId;
     
     const actionIcons = createActionIcons(message, messageId);
     messageContainer.appendChild(actionIcons);
+  } else if (!isUser && !serverMessageId) {
+    // For messages without server IDs (like error messages), don't create action icons
+    console.log('[contentIQ widget] No message ID provided - skipping action icons');
   }
 
 row.append(av, messageContainer);
@@ -845,7 +837,11 @@ try{
     },
     body: JSON.stringify({ ...auth, message })
   });
-  if(!res.ok){ addMessage(`Error: ${res.status}`, false); return; }
+  if(!res.ok){ 
+    // Don't create message ID for server errors - just show error message
+    addMessage(`Error: ${res.status}`, false, null); 
+    return; 
+  }
   
   // Parse response as JSON to get session_id and message
   const responseData = await res.json();
@@ -866,12 +862,9 @@ try{
   console.log('[contentIQ widget] Setting up delayed feedback');
   
   // Send neutral feedback after a delay if no feedback is given
-  setTimeout(() => {
-    // If we don't have a valid message ID from the server, don't try to send feedback
-    if (!finalMessageId) {
-      console.warn('[contentIQ widget] No valid message available for neutral feedback');
-      return;
-    }
+  // Only send feedback for messages with valid server IDs
+  if (finalMessageId) {
+    setTimeout(() => {
     
     // Find the message bubble by ID
     const messageBubbles = document.querySelectorAll('[data-message-id]');
@@ -901,7 +894,8 @@ try{
     } else {
       console.warn('[contentIQ widget] Could not find message bubble for feedback');
     }
-  }, 30000); // Wait 30 seconds before sending neutral feedback
+    }, 30000); // Wait 30 seconds before sending neutral feedback
+  }
   
   // Store session ID for future requests
   if (responseData.session_id && responseData.session_id !== sessionId) {
@@ -918,8 +912,9 @@ try{
     updateSessionActivity();
   }
 }catch(e){
-  addMessage('Sorry, I encountered an error. Please try again.', false);
-  console.error(e);
+  // Network errors or other exceptions - don't create message ID for these either
+  addMessage('Sorry, I encountered an error. Please try again.', false, null);
+  console.error('[contentIQ widget] Network or other error:', e);
 }
 }
 
