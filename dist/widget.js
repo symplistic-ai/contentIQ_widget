@@ -45,7 +45,7 @@
           // Check if session has expired
           if (now - lastActivity < SESSION_EXPIRY_MS) {
               sessionId = parsed.sessionId;
-              console.log('[contentIQ widget] Using existing session ID:', sessionId);
+              console.log('[contentIQ widget] Using existing session');
               
               // Update last activity
               parsed.lastActivity = now;
@@ -76,7 +76,7 @@
           created: Date.now()
       };
       localStorage.setItem(storageKey, JSON.stringify(sessionData));
-      console.log('[contentIQ widget] Created new unique session ID:', sessionId);
+      console.log('[contentIQ widget] Created new session');
   }
   
   // Function to update session activity
@@ -132,7 +132,7 @@
   window.contentIQExpireSession = expireSession;
   
   // Log session info for debugging
-  console.log('[contentIQ widget] Session info:', getSessionInfo());
+  // Session info logging removed for privacy
 
   /* ───── helpers ─────────────────────────────────────────────── */
   const encoder = new TextEncoder();
@@ -598,6 +598,12 @@ return icons[type] || '';
 
 /* ===== messaging logic (unchanged) ===== */
 function createActionIcons(messageText, messageId) {
+// Ensure we have a valid message ID
+if (!messageId) {
+  console.error('[contentIQ widget] Missing messageId in createActionIcons');
+  return document.createElement('div'); // Return empty div if no message ID
+}
+
 const actionIcons = document.createElement('div');
 actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-left:2px; margin-top:8px;`;
 ['copy','thumbs-up','thumbs-down'].forEach(icon=>{
@@ -734,8 +740,21 @@ messageContainer.appendChild(bubble);
 
     // Add action icons only for agent messages (not user messages)
   if (!isUser) {
-    // Use the server-provided message ID if available, otherwise generate one
-    const messageId = serverMessageId || crypto.randomUUID();
+    // Use the server-provided message ID if available
+    // We'll only generate a random UUID if this is not a message from the server
+    // or if we're in a test/development environment
+    let messageId;
+    if (serverMessageId) {
+      // Use the server-provided message ID
+      messageId = serverMessageId;
+      console.log('[contentIQ widget] Using server message ID');
+    } else {
+      // Only generate a random ID if this isn't from a server response
+      // This should only happen during development/testing
+      messageId = crypto.randomUUID();
+      console.warn('[contentIQ widget] Server did not provide message ID, generating local ID');
+    }
+    
     bubble.dataset.messageId = messageId;
     
     const actionIcons = createActionIcons(message, messageId);
@@ -752,6 +771,8 @@ if (!messageId || !feedbackType) {
   console.error('[contentIQ widget] Missing messageId or feedbackType for feedback');
   return;
 }
+
+console.log('[contentIQ widget] Sending feedback');
 
 // We need the thread_id which is in the format "widget_{agent_id}_{session_id}"
 const threadId = `widget_${AGENT_ID}_${sessionId}`;
@@ -779,7 +800,7 @@ try {
   }
   
   const responseData = await res.json();
-  console.log('[contentIQ widget] Feedback sent successfully:', responseData);
+  console.log('[contentIQ widget] Feedback sent successfully');
   
   // Update session activity
   updateSessionActivity();
@@ -819,17 +840,31 @@ try{
   // Get the message ID from the response if available
   const messageId = responseData.message_id;
   
-  // Add the message to the UI
+  // Log the message ID for debugging
+  console.log('[contentIQ widget] Received server response');
+  
+  // Add the message to the UI with the server's message ID
+  // If messageId is undefined, null, or empty, addMessage will generate a random UUID
   addMessage(cleanedText, false, messageId);
+  
+  // Store the message ID for later use - make sure it's the server's ID
+  const finalMessageId = messageId;
+  console.log('[contentIQ widget] Setting up delayed feedback');
   
   // Send neutral feedback after a delay if no feedback is given
   setTimeout(() => {
+    // If we don't have a valid message ID from the server, don't try to send feedback
+    if (!finalMessageId) {
+      console.warn('[contentIQ widget] No valid message available for neutral feedback');
+      return;
+    }
+    
     // Find the message bubble by ID
     const messageBubbles = document.querySelectorAll('[data-message-id]');
     let targetBubble = null;
     
     for (const bubble of messageBubbles) {
-      if (bubble.dataset.messageId === messageId) {
+      if (bubble.dataset.messageId === finalMessageId) {
         targetBubble = bubble;
         break;
       }
@@ -844,11 +879,13 @@ try{
         // If no feedback button is selected, send neutral feedback
         if (feedbackButtons.length === 0) {
           console.log('[contentIQ widget] No feedback given, sending neutral feedback');
-          sendFeedback(messageId, 'neutral').catch(err => {
+          sendFeedback(finalMessageId, 'neutral').catch(err => {
             console.error('[contentIQ widget] Error sending neutral feedback:', err);
           });
         }
       }
+    } else {
+      console.warn('[contentIQ widget] Could not find message bubble for feedback');
     }
   }, 30000); // Wait 30 seconds before sending neutral feedback
   
@@ -861,7 +898,7 @@ try{
       created: Date.now()
     };
     localStorage.setItem(storageKey, JSON.stringify(sessionData));
-    console.log('[contentIQ widget] New session ID stored:', sessionId);
+    console.log('[contentIQ widget] New session stored');
   } else {
     // Update activity even if session ID didn't change
     updateSessionActivity();
