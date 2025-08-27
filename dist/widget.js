@@ -628,11 +628,6 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
     chip.dataset.feedbackType = icon === 'thumbs-up' ? 'helpful' : 'not_helpful';
     chip.onclick = async () => {
       try {
-        console.log('[contentIQ widget] Feedback button clicked!', {
-          messageId,
-          feedbackType: chip.dataset.feedbackType,
-          hasMessageId: !!messageId
-        });
         await sendFeedback(messageId, chip.dataset.feedbackType);
         
         // Visual feedback - briefly change the icon to a checkmark
@@ -662,7 +657,7 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
 return actionIcons;
 }
 
-function addMessage(message, isUser=false){
+function addMessage(message, isUser=false, serverMessageId=null){
 const row = document.createElement('div');
 row.style.cssText = `
   display:flex; align-items:flex-start; gap:12px; margin: 0 0 20px;
@@ -696,8 +691,8 @@ messageContainer.appendChild(bubble);
 
     // Add action icons only for agent messages (not user messages)
   if (!isUser) {
-    // Store the message ID for feedback functionality
-    const messageId = crypto.randomUUID();
+    // Use the server-provided message ID if available, otherwise generate one
+    const messageId = serverMessageId || crypto.randomUUID();
     bubble.dataset.messageId = messageId;
     
     const actionIcons = createActionIcons(message, messageId);
@@ -710,7 +705,6 @@ chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 async function sendFeedback(messageId, feedbackType) {
-console.log('[contentIQ widget] sendFeedback called with:', { messageId, feedbackType });
 if (!messageId || !feedbackType) {
   console.error('[contentIQ widget] Missing messageId or feedbackType for feedback');
   return;
@@ -775,10 +769,15 @@ try{
   });
   if(!res.ok){ addMessage(`Error: ${res.status}`, false); return; }
   
-  // Parse response as JSON to get session_id
+  // Parse response as JSON to get session_id and message
   const responseData = await res.json();
   const cleanedText = cleanResponse(responseData.assistant);
-  addMessage(cleanedText, false);
+  
+  // Get the message ID from the response if available
+  const messageId = responseData.message_id;
+  
+  // Add the message to the UI
+  addMessage(cleanedText, false, messageId);
   
   // Store session ID for future requests
   if (responseData.session_id && responseData.session_id !== sessionId) {
