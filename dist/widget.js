@@ -406,6 +406,27 @@ _ciqStyle.textContent += `
   line-height: 1.4; 
 }
 
+/* Feedback button styling */
+.contentiq_symplisticai_chat [data-feedback-button].selected-feedback {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.contentiq_symplisticai_chat [data-feedback-button="thumbs-up"].selected-feedback {
+  animation: pulse-green 2s infinite;
+}
+.contentiq_symplisticai_chat [data-feedback-button="thumbs-down"].selected-feedback {
+  animation: pulse-red 2s infinite;
+}
+@keyframes pulse-green {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
 /* double halo around the blue FAB */
 .contentiq_symplisticai_chat .ciq-fab::before,
 .contentiq_symplisticai_chat .ciq-fab::after{
@@ -626,14 +647,35 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
   // Add feedback functionality for thumbs-up and thumbs-down
   if (icon === 'thumbs-up' || icon === 'thumbs-down') {
     chip.dataset.feedbackType = icon === 'thumbs-up' ? 'helpful' : 'not_helpful';
+    
+    // Add a data attribute to identify this as a feedback button
+    chip.dataset.feedbackButton = icon;
+    
+    // Add a title attribute for tooltip
+    chip.title = icon === 'thumbs-up' ? 'This was helpful' : 'This was not helpful';
+    
     chip.onclick = async () => {
       try {
+        // First, reset all feedback buttons in this container to default state
+        const allFeedbackButtons = chip.parentElement.querySelectorAll('[data-feedback-button]');
+        allFeedbackButtons.forEach(btn => {
+          btn.style.background = '#F3F5FA';
+          btn.style.borderColor = 'var(--border)';
+          btn.style.transform = 'none';
+          btn.style.color = 'currentColor';
+          btn.classList.remove('selected-feedback');
+        });
+        
+        // Show immediate visual feedback that the button was clicked
+        chip.style.background = icon === 'thumbs-up' ? '#E0F2E9' : '#FEE2E2';
+        chip.style.borderColor = icon === 'thumbs-up' ? '#10B981' : '#EF4444';
+        chip.style.transform = 'translateY(-2px)';
+        chip.classList.add('selected-feedback');
+        
         await sendFeedback(messageId, chip.dataset.feedbackType);
         
-        // Visual feedback - briefly change the icon to a checkmark
+        // Enhanced visual feedback - briefly change the icon to a checkmark
         const originalHTML = chip.innerHTML;
-        const originalBackground = chip.style.background;
-        const originalBorderColor = chip.style.borderColor;
         
         chip.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
         chip.style.background = '#10B981';
@@ -641,9 +683,10 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         chip.style.color = '#fff';
         
         setTimeout(() => {
+          // Return to the selected state, not the original state
           chip.innerHTML = originalHTML;
-          chip.style.background = originalBackground;
-          chip.style.borderColor = originalBorderColor;
+          chip.style.background = icon === 'thumbs-up' ? '#E0F2E9' : '#FEE2E2';
+          chip.style.borderColor = icon === 'thumbs-up' ? '#10B981' : '#EF4444';
           chip.style.color = 'currentColor';
         }, 1500);
       } catch (err) {
