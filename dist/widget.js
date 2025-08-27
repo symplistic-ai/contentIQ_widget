@@ -822,6 +822,36 @@ try{
   // Add the message to the UI
   addMessage(cleanedText, false, messageId);
   
+  // Send neutral feedback after a delay if no feedback is given
+  setTimeout(() => {
+    // Find the message bubble by ID
+    const messageBubbles = document.querySelectorAll('[data-message-id]');
+    let targetBubble = null;
+    
+    for (const bubble of messageBubbles) {
+      if (bubble.dataset.messageId === messageId) {
+        targetBubble = bubble;
+        break;
+      }
+    }
+    
+    // If we found the bubble and no feedback has been given yet
+    if (targetBubble) {
+      const parentContainer = targetBubble.parentElement;
+      if (parentContainer) {
+        const feedbackButtons = parentContainer.querySelectorAll('[data-feedback-button].selected-feedback');
+        
+        // If no feedback button is selected, send neutral feedback
+        if (feedbackButtons.length === 0) {
+          console.log('[contentIQ widget] No feedback given, sending neutral feedback');
+          sendFeedback(messageId, 'neutral').catch(err => {
+            console.error('[contentIQ widget] Error sending neutral feedback:', err);
+          });
+        }
+      }
+    }
+  }, 30000); // Wait 30 seconds before sending neutral feedback
+  
   // Store session ID for future requests
   if (responseData.session_id && responseData.session_id !== sessionId) {
     sessionId = responseData.session_id;
