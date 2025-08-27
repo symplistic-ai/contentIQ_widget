@@ -628,6 +628,11 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
     chip.dataset.feedbackType = icon === 'thumbs-up' ? 'helpful' : 'not_helpful';
     chip.onclick = async () => {
       try {
+        console.log('[contentIQ widget] Feedback button clicked!', {
+          messageId,
+          feedbackType: chip.dataset.feedbackType,
+          hasMessageId: !!messageId
+        });
         await sendFeedback(messageId, chip.dataset.feedbackType);
         
         // Visual feedback - briefly change the icon to a checkmark
@@ -705,6 +710,7 @@ chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 async function sendFeedback(messageId, feedbackType) {
+console.log('[contentIQ widget] sendFeedback called with:', { messageId, feedbackType });
 if (!messageId || !feedbackType) {
   console.error('[contentIQ widget] Missing messageId or feedbackType for feedback');
   return;
