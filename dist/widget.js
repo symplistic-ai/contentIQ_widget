@@ -3,6 +3,8 @@
  * Mounts a modern chat interface inside the placeholder div and
  * talks to the backend with signed site-token + replay-safe ts|sig.
  * 
+ * Version: 2.0.0 - Clean session IDs without user agent
+ * 
  * Session Configuration:
  * To customize session expiry time, set window.contentIQConfig before loading the widget:
  * <script>
@@ -62,11 +64,10 @@
   
   // If no valid session exists, create a new unique one
   if (!sessionId) {
-      // Generate a truly unique session ID for this user
+      // Generate a clean, unique session ID for this user
       const timestamp = Date.now();
       const random = Math.random().toString(36).substring(2, 15);
-      const userAgent = navigator.userAgent.substring(0, 20);
-      const uniqueId = `${timestamp}_${random}_${userAgent}`;
+      const uniqueId = `${timestamp}_${random}`;
       sessionId = `session_${uniqueId}`;
       
       // Store session data with timestamp
@@ -130,6 +131,19 @@
   
   // Make expireSession available globally for testing
   window.contentIQExpireSession = expireSession;
+  
+  // Function to detect and clean up old session formats
+  function isOldSessionFormat(sessionId) {
+    return sessionId && sessionId.includes('Mozilla') || sessionId.includes('Chrome') || sessionId.includes('Safari');
+  }
+  
+  // Clean up any old session formats
+  if (sessionId && isOldSessionFormat(sessionId)) {
+    console.log('[contentIQ widget] Detected old session format, cleaning up');
+    localStorage.removeItem(storageKey);
+    sessionId = null;
+    // This will trigger creation of a new clean session ID
+  }
   
   // Log session info for debugging
   // Session info logging removed for privacy
