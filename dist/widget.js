@@ -27,35 +27,26 @@
   // Session management for conversation continuity
   let sessionId = null;
   
-  // Session configuration - can be customized per deployment
-  const SESSION_EXPIRY_HOURS = window.contentIQConfig?.sessionExpiryHours || 1; // Default 1 hours, configurable
-  const SESSION_EXPIRY_MS = SESSION_EXPIRY_HOURS * 60 * 60 * 1000;
+  // Thread timeout configuration (5 minutes)
+  const THREAD_TIMEOUT_MINUTES = window.contentIQConfig?.threadTimeoutMinutes || 5; // Default 5 minutes
+  const THREAD_TIMEOUT_MS = THREAD_TIMEOUT_MINUTES * 60 * 1000;
   
-  console.log(`[contentIQ widget] Session expiry set to ${SESSION_EXPIRY_HOURS} hours`);
+  console.log(`[contentIQ widget] Thread timeout set to ${THREAD_TIMEOUT_MINUTES} minutes`);
   
   // Try to get existing session ID from localStorage
   const storageKey = `contentiq_session_${AGENT_ID}`;
   const sessionData = localStorage.getItem(storageKey);
   
-  // Check if session exists and is not expired
+  // Check if session exists
   if (sessionData) {
       try {
           const parsed = JSON.parse(sessionData);
-          const lastActivity = parsed.lastActivity || 0;
-          const now = Date.now();
+          sessionId = parsed.sessionId;
+          console.log('[contentIQ widget] Using existing session');
           
-          // Check if session has expired
-          if (now - lastActivity < SESSION_EXPIRY_MS) {
-              sessionId = parsed.sessionId;
-              console.log('[contentIQ widget] Using existing session');
-              
-              // Update last activity
-              parsed.lastActivity = now;
-              localStorage.setItem(storageKey, JSON.stringify(parsed));
-          } else {
-              console.log('[contentIQ widget] Session expired, creating new one');
-              localStorage.removeItem(storageKey);
-          }
+          // Update last activity
+          parsed.lastActivity = Date.now();
+          localStorage.setItem(storageKey, JSON.stringify(parsed));
       } catch (e) {
           console.log('[contentIQ widget] Invalid session data, creating new one');
           localStorage.removeItem(storageKey);
@@ -110,15 +101,35 @@
                   sessionId: parsed.sessionId,
                   lastActivity: new Date(lastActivity).toISOString(),
                   timeSinceActivity: `${hoursSinceActivity}h ${minutesSinceActivity}m`,
-                  isExpired: timeSinceActivity >= SESSION_EXPIRY_MS,
-                  expiresIn: SESSION_EXPIRY_MS - timeSinceActivity,
-                  expiryHours: SESSION_EXPIRY_HOURS
+                  threadTimedOut: timeSinceActivity >= THREAD_TIMEOUT_MS,
+                  threadTimeoutMinutes: THREAD_TIMEOUT_MINUTES
               };
           } catch (e) {
               return { error: 'Invalid session data' };
           }
       }
       return { error: 'No session data' };
+  }
+  
+  // Function to check if thread has timed out (5 minutes of inactivity)
+  function checkThreadTimeout() {
+      const sessionData = localStorage.getItem(storageKey);
+      if (sessionData) {
+          try {
+              const parsed = JSON.parse(sessionData);
+              const lastActivity = parsed.lastActivity || 0;
+              const now = Date.now();
+              
+              // Check if thread has timed out (5 minutes)
+              if (now - lastActivity >= THREAD_TIMEOUT_MS) {
+                  console.log('[contentIQ widget] Thread timed out, will create new session');
+                  return true;
+              }
+          } catch (e) {
+              console.warn('[contentIQ widget] Error checking thread timeout:', e);
+          }
+      }
+      return false;
   }
   
   // Function to manually expire session (for testing or user logout)
@@ -131,6 +142,9 @@
   
   // Make expireSession available globally for testing
   window.contentIQExpireSession = expireSession;
+  
+  // Make thread timeout check available globally for testing
+  window.contentIQCheckThreadTimeout = checkThreadTimeout;
   
   // Function to detect and clean up old session formats
   function isOldSessionFormat(sessionId) {
@@ -780,6 +794,13 @@ if (!messageId || !feedbackType) {
 
 console.log('[contentIQ widget] Sending feedback');
 
+// Check if thread has timed out before sending feedback
+const threadTimedOut = checkThreadTimeout();
+if (threadTimedOut) {
+    console.log('[contentIQ widget] Thread timed out, skipping feedback');
+    return;
+}
+
 // We need the thread_id which is in the format "widget_{agent_id}_{session_id}"
 const threadId = `widget_${AGENT_ID}_${sessionId}`;
 
@@ -823,6 +844,14 @@ if(!message.trim()) return;
 addMessage(message, true);
 input.value = '';
 
+// Check if thread has timed out before sending message
+const threadTimedOut = checkThreadTimeout();
+if (threadTimedOut) {
+    console.log('[contentIQ widget] Thread timed out, clearing session for new thread');
+    localStorage.removeItem(storageKey);
+    sessionId = null;
+}
+
 // Update session activity when user sends a message
 updateSessionActivity();
 
@@ -849,6 +878,22 @@ try{
   
   // Get the message ID from the response if available
   const messageId = responseData.message_id;
+  
+  // Check if server sent a new session ID (thread timeout)
+  const newSessionId = res.headers.get('X-New-Session-ID');
+  if (newSessionId) {
+      console.log('[contentIQ widget] Server provided new session ID due to thread timeout');
+      sessionId = newSessionId;
+      
+      // Store new session data
+      const sessionData = {
+          sessionId: sessionId,
+          lastActivity: Date.now(),
+          created: Date.now()
+      };
+      localStorage.setItem(storageKey, JSON.stringify(sessionData));
+      console.log('[contentIQ widget] New session stored after thread timeout');
+  }
   
   // Log the message ID for debugging
   console.log('[contentIQ widget] Received server response');
@@ -897,8 +942,8 @@ try{
     }, 30000); // Wait 30 seconds before sending neutral feedback
   }
   
-  // Store session ID for future requests
-  if (responseData.session_id && responseData.session_id !== sessionId) {
+  // Store session ID for future requests (only if not already handled by X-New-Session-ID header)
+  if (!newSessionId && responseData.session_id && responseData.session_id !== sessionId) {
     sessionId = responseData.session_id;
     const sessionData = {
       sessionId: sessionId,
