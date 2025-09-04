@@ -22,7 +22,7 @@
   const AGENT_ID   = ROOT.dataset.agent;
   const SCRIPT_TAG = document.currentScript;
   const SITE_TOKEN = SCRIPT_TAG.dataset.token;
-  const BACKEND    = SCRIPT_TAG.dataset.backend || 'http://localhost:1234';
+  const BACKEND    = 'http://localhost:1234';
 
   // Session management for conversation continuity
   let sessionId = null;
@@ -248,7 +248,7 @@ cursor: pointer;
 display: flex;
 align-items: center;
 justify-content: center;
-color: #000;
+color: #ffffff;
 font-size: 18px;
 font-weight: bold;
 border-radius: 50%;
@@ -261,6 +261,35 @@ closeButton.onclick = (e) => {
 e.stopPropagation();
 toggleChat();
 };
+
+/* Resize button */
+const resizeButton = document.createElement('button');
+resizeButton.style.cssText = `
+position: absolute;
+top: 18px;
+right: 50px;
+width: 24px;
+height: 24px;
+border: none;
+background: transparent;
+cursor: pointer;
+display: flex;
+align-items: center;
+justify-content: center;
+color: #ffffff;
+font-size: 16px;
+font-weight: bold;
+border-radius: 50%;
+transition: background-color 0.2s ease;
+`;
+resizeButton.innerHTML = getIconSVG('expand');
+resizeButton.title = 'Make larger';
+resizeButton.onmouseover = () => { resizeButton.style.backgroundColor = 'rgba(0,0,0,0.1)'; };
+resizeButton.onmouseout = () => { resizeButton.style.backgroundColor = 'transparent'; };
+resizeButton.onclick = (e) => {
+e.stopPropagation();
+toggleResize();
+};
 const logo = document.createElement('div');
 // logo.style.cssText = `
 //   width: 36px; height: 36px; border-radius: 50%;
@@ -270,7 +299,7 @@ const logo = document.createElement('div');
 // `;
 // logo.textContent = 'S';
 const title = document.createElement('div');
-title.innerHTML = '<span style="color:#000;">symplistic.</span><span style="color:var(--ciq-blue)">contentIQ</span>';
+title.innerHTML = '<span style="color:#ffffff;">symplistic.</span><span style="color:var(--ciq-blue)">contentIQ</span>';
 title.style.cssText = `
 font-weight: 800; font-size: 18px; letter-spacing:.2px; margin-top: 10px;
 margin-left: -18px;
@@ -278,7 +307,7 @@ margin-left: -18px;
 const timestamp = document.createElement('div');
 timestamp.style.cssText = `display:none;`; /* hide in header per screenshot */
 timestamp.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-header.append(logo, title, timestamp, closeButton);
+header.append(logo, title, timestamp, resizeButton, closeButton);
 
 /* Scroll area */
 const chatArea = document.createElement('div');
@@ -308,21 +337,27 @@ messageContent.style.cssText = `flex:1;`;
 
 const botName = document.createElement('div');
 botName.style.cssText = `
-font-weight:700; font-size:15px; color:#000; margin: 4px 0 8px; display:flex; align-items:center; gap:12px;
+font-weight:700; font-size:15px; color:#ffffff; margin: 4px 0 8px; display:flex; align-items:center; gap:12px;
 `;
 botName.textContent = 'ContentIQ';
 
 /* thin, rounded, airy bubble like screenshot */
 const messageBubble = document.createElement('div');
 messageBubble.style.cssText = `
-background: var(--bubble);
-border: 1px solid var(--border);
-color:#000;
+background: #1a1a1a;
+border: 1px solid #333333;
+color: #ffffff;
 padding: 14px 16px;
 border-radius: 20px;
 font-size: 15px; line-height: 1.45;
-max-width: 86%;
-box-shadow: 0 8px 22px rgba(17,24,39,.06);
+width: 80%;
+max-width: 100%;
+word-wrap: break-word;
+overflow-wrap: break-word;
+word-break: break-word;
+hyphens: auto;
+overflow: hidden;
+box-shadow: 0 8px 22px rgba(0,0,0,.3);
 margin-bottom: 16px;
 `;
 messageBubble.textContent = "Welcome to symplistic.ai! Ask me anything!";
@@ -335,13 +370,14 @@ const chip=document.createElement('div');
 chip.style.cssText = `
   width:28px; height:28px;
   display:flex; align-items:center; justify-content:center;
-  border-radius:10px; background:#F3F5FA; border:1px solid var(--border);
+  border-radius:10px; background:#1a1a1a; border:1px solid #333333;
   cursor:pointer; transition: background .15s ease, border-color .15s ease, transform .1s ease;
-  box-shadow: 0 3px 8px rgba(17,24,39,.05);
+  box-shadow: 0 3px 8px rgba(0,0,0,.2);
+  color: #ffffff;
 `;
 chip.innerHTML = getIconSVG(icon);
-chip.onmouseover = ()=>{ chip.style.background='#EEF2FF'; chip.style.borderColor='var(--ciq-blue)'; chip.style.transform='translateY(-1px)'; };
-chip.onmouseout  = ()=>{ chip.style.background='#F3F5FA'; chip.style.borderColor='var(--border)'; chip.style.transform='none'; };
+chip.onmouseover = ()=>{ chip.style.background='#333333'; chip.style.borderColor='var(--ciq-blue)'; chip.style.transform='translateY(-1px)'; };
+chip.onmouseout  = ()=>{ chip.style.background='#1a1a1a'; chip.style.borderColor='#333333'; chip.style.transform='none'; };
 actionIcons.appendChild(chip);
 });
 
@@ -369,14 +405,14 @@ input.placeholder='Ask me anything...';
 input.style.cssText = `
 width: 100%;
 height: 56px;
-background: linear-gradient(180deg, #F6F8FC 0%, #F5F7FB 100%);
-border: 1px solid #E3E9F3;
+background: linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%);
+border: 1px solid #333333;
 border-radius: 22px;
 padding: 0 76px 0 50px;            /* room for mic + right breathing */
-font-size: 16px; color: #111827; outline: none;
+font-size: 16px; color: #ffffff; outline: none;
 box-shadow:
-  inset 0 1px 0 rgba(255,255,255,.75),
-  0 12px 28px rgba(17,24,39,.06);
+  inset 0 1px 0 rgba(255,255,255,.1),
+  0 12px 28px rgba(0,0,0,.3);
 `;
 const micButton = document.createElement('button');
 micButton.style.cssText = `
@@ -413,7 +449,7 @@ sendButton.onmouseout  = () => { sendButton.style.background = '#246BFD'; };
 
 const _ciqStyle = document.createElement('style');
 _ciqStyle.textContent += `
-.contentiq_symplisticai_chat input::placeholder { color:#9AA3AF; opacity:1; }
+.contentiq_symplisticai_chat input::placeholder { color:#666666; opacity:1; }
 
 /* Markdown styling */
 .contentiq_symplisticai_chat strong { font-weight: 700; }
@@ -474,16 +510,57 @@ _ciqStyle.textContent += `
   background: radial-gradient(circle,
     rgba(36,107,253,.22) 0%, rgba(36,107,253,.14) 55%, rgba(36,107,253,0) 72%);
 }
+
+/* Typing indicator animation */
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+}
 `;
 
 
 document.head.appendChild(_ciqStyle);
 
+/* Source cards styling */
+const sourceCardStyle = `
+  background: #1a1a1a;
+  border: 1px solid #333333;
+  border-radius: 12px;
+  padding: 12px;
+  margin: 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  transition: all 0.2s ease;
+  overflow: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+  box-sizing: border-box;
+`;
+
+const sourceLinkStyle = `
+  color: var(--ciq-blue);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+`;
+
+const sourceLinkHoverStyle = `
+  border-bottom-color: var(--ciq-blue);
+`;
+
 /* Disclaimer text */
 const disclaimer = document.createElement('div');
 disclaimer.style.cssText = `
 font-size: 11px;
-color: #6B7280;
+color: #999999;
 text-align: center;
 margin-top: 8px;
 line-height: 1.3;
@@ -516,7 +593,7 @@ display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
 cursor: grab;
 `;
-chatIcon.textContent = 'S';
+chatIcon.innerHTML = getIconSVG('chat');
 
 /* Create full chat interface (initially hidden) */
 const chatInterface = document.createElement('div');
@@ -524,10 +601,38 @@ chatInterface.style.cssText = `
 width: 420px; height: 650px;
 display: none; flex-direction: column; overflow: hidden;
 border-radius: 22px;
-border: 1px solid #ECEEF5;
-background: radial-gradient(circle at center, #FFFFFF 0%, #F0EEFF 30%, #E0D8FF 60%, #D0C8FF 80%);
-box-shadow: 0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06);
+border: 1px solid #333333;
+background: linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #000000 100%);
+box-shadow: 0 22px 48px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2);
+position: relative;
+transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 `;
+
+/* Resize functionality */
+let isExpanded = false;
+let isResizing = false;
+
+function toggleResize() {
+  isExpanded = !isExpanded;
+  
+  if (isExpanded) {
+    // Expand to larger size
+    ROOT.style.width = '600px';
+    ROOT.style.height = '800px';
+    chatInterface.style.width = '600px';
+    chatInterface.style.height = '800px';
+    resizeButton.innerHTML = getIconSVG('shrink');
+    resizeButton.title = 'Make smaller';
+  } else {
+    // Return to normal size
+    ROOT.style.width = '420px';
+    ROOT.style.height = '650px';
+    chatInterface.style.width = '420px';
+    chatInterface.style.height = '650px';
+    resizeButton.innerHTML = getIconSVG('expand');
+    resizeButton.title = 'Make larger';
+  }
+}
 
 /* Toggle function */
 let isOpen = false;
@@ -536,8 +641,8 @@ isOpen = !isOpen;
 
 if (isOpen) {
   // Expand to full chat
-  ROOT.style.width = '420px';
-  ROOT.style.height = '650px';
+  ROOT.style.width = isExpanded ? '600px' : '420px';
+  ROOT.style.height = isExpanded ? '800px' : '650px';
   ROOT.style.borderRadius = '22px';
   ROOT.style.flexDirection = 'column';
   ROOT.style.overflow = 'hidden';
@@ -612,6 +717,295 @@ html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
 return html;
 }
 
+function parseSources(text) {
+  const sources = [];
+  
+  // Look for source patterns like 【1】, 【2】, etc.
+  const sourcePattern = /【(\d+)】\s*([^【]+?)(?=【\d+】|$)/g;
+  let match;
+  
+  while ((match = sourcePattern.exec(text)) !== null) {
+    const sourceNumber = match[1];
+    const sourceText = match[2].trim();
+    
+    // Extract URL and description
+    const urlMatch = sourceText.match(/(https?:\/\/[^\s]+)/);
+    const url = urlMatch ? urlMatch[1] : '';
+    const description = sourceText.replace(url, '').replace(/^[–—]\s*/, '').trim();
+    
+    if (url && description) {
+      sources.push({
+        number: sourceNumber,
+        url: url,
+        description: description
+      });
+    }
+  }
+  
+  return sources;
+}
+
+function createSourceCards(sources) {
+  if (!sources || sources.length === 0) return null;
+  
+  // Create the main sources container
+  const sourcesContainer = document.createElement('div');
+  sourcesContainer.style.cssText = `
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+  `;
+  
+  // Create the dropdown header
+  const sourcesHeader = document.createElement('div');
+  sourcesHeader.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #1a1a1a;
+    border: 1px solid #333333;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+  `;
+  
+  const sourcesTitle = document.createElement('span');
+  sourcesTitle.style.cssText = `
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 14px;
+  `;
+  sourcesTitle.textContent = `Sources (${sources.length})`;
+  
+  const dropdownIcon = document.createElement('span');
+  dropdownIcon.style.cssText = `
+    color: var(--ciq-blue);
+    font-size: 16px;
+    transition: transform 0.2s ease;
+    margin-left: auto;
+  `;
+  dropdownIcon.innerHTML = '▼';
+  
+  sourcesHeader.appendChild(sourcesTitle);
+  sourcesHeader.appendChild(dropdownIcon);
+  
+  // Create the scrollable cards container (initially hidden)
+  const cardsContainer = document.createElement('div');
+  cardsContainer.style.cssText = `
+    display: none;
+    margin-top: 12px;
+    position: relative;
+  `;
+  
+  const scrollableArea = document.createElement('div');
+  scrollableArea.style.cssText = `
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    padding: 8px 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    width: 100%;
+    max-width: 100%;
+  `;
+  
+  // Hide scrollbar
+  scrollableArea.style.cssText += `
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  `;
+  
+  // Add scrollbar hiding for webkit browsers
+  const style = document.createElement('style');
+  style.textContent = `
+    .source-scrollable::-webkit-scrollbar {
+      display: none;
+    }
+  `;
+  document.head.appendChild(style);
+  scrollableArea.classList.add('source-scrollable');
+  
+  // Create scroll buttons
+  const leftButton = document.createElement('button');
+  leftButton.style.cssText = `
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: #1a1a1a;
+    border: 1px solid #333333;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.2s ease;
+  `;
+  leftButton.innerHTML = '‹';
+  leftButton.onmouseover = () => { 
+    leftButton.style.background = '#333333'; 
+    leftButton.style.borderColor = 'var(--ciq-blue)'; 
+  };
+  leftButton.onmouseout = () => { 
+    leftButton.style.background = '#1a1a1a'; 
+    leftButton.style.borderColor = '#333333'; 
+  };
+  
+  const rightButton = document.createElement('button');
+  rightButton.style.cssText = `
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: #1a1a1a;
+    border: 1px solid #333333;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.2s ease;
+  `;
+  rightButton.innerHTML = '›';
+  rightButton.onmouseover = () => { 
+    rightButton.style.background = '#333333'; 
+    rightButton.style.borderColor = 'var(--ciq-blue)'; 
+  };
+  rightButton.onmouseout = () => { 
+    rightButton.style.background = '#1a1a1a'; 
+    rightButton.style.borderColor = '#333333'; 
+  };
+  
+  // Create individual source cards
+  sources.forEach(source => {
+    const sourceCard = document.createElement('div');
+    sourceCard.style.cssText = `
+      ${sourceCardStyle}
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      flex-shrink: 0;
+      overflow: hidden;
+      box-sizing: border-box;
+    `;
+    
+    const sourceHeader = document.createElement('div');
+    sourceHeader.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      overflow: hidden;
+      width: 100%;
+      box-sizing: border-box;
+    `;
+    
+    const sourceNumber = document.createElement('span');
+    sourceNumber.style.cssText = `
+      background: var(--ciq-blue);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      min-width: 20px;
+      text-align: center;
+    `;
+    sourceNumber.textContent = `【${source.number}】`;
+    
+    const sourceLink = document.createElement('a');
+    sourceLink.href = source.url;
+    sourceLink.target = '_blank';
+    sourceLink.rel = 'noopener noreferrer';
+    sourceLink.style.cssText = sourceLinkStyle;
+    sourceLink.textContent = 'View source';
+    sourceLink.onmouseover = () => { sourceLink.style.cssText = sourceLinkStyle + sourceLinkHoverStyle; };
+    sourceLink.onmouseout = () => { sourceLink.style.cssText = sourceLinkStyle; };
+    
+    sourceHeader.appendChild(sourceNumber);
+    sourceHeader.appendChild(sourceLink);
+    
+    const sourceDescription = document.createElement('div');
+    sourceDescription.style.cssText = `
+      color: #cccccc;
+      font-size: 14px;
+      line-height: 1.4;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      word-break: break-word;
+      hyphens: auto;
+      overflow: hidden;
+      max-width: 100%;
+      white-space: normal;
+    `;
+    sourceDescription.textContent = source.description;
+    
+    sourceCard.appendChild(sourceHeader);
+    sourceCard.appendChild(sourceDescription);
+    scrollableArea.appendChild(sourceCard);
+  });
+  
+  // Add scroll functionality
+  leftButton.onclick = () => {
+    scrollableArea.scrollBy({ left: -300, behavior: 'smooth' });
+  };
+  
+  rightButton.onclick = () => {
+    scrollableArea.scrollBy({ left: 300, behavior: 'smooth' });
+  };
+  
+  // Toggle dropdown functionality
+  let isExpanded = false;
+  sourcesHeader.onclick = () => {
+    isExpanded = !isExpanded;
+    if (isExpanded) {
+      cardsContainer.style.display = 'block';
+      dropdownIcon.style.transform = 'rotate(180deg)';
+      sourcesHeader.style.borderBottomLeftRadius = '0';
+      sourcesHeader.style.borderBottomRightRadius = '0';
+    } else {
+      cardsContainer.style.display = 'none';
+      dropdownIcon.style.transform = 'rotate(0deg)';
+      sourcesHeader.style.borderBottomLeftRadius = '12px';
+      sourcesHeader.style.borderBottomRightRadius = '12px';
+    }
+  };
+  
+  // Hover effects for header
+  sourcesHeader.onmouseover = () => {
+    sourcesHeader.style.background = '#333333';
+    sourcesHeader.style.borderColor = 'var(--ciq-blue)';
+  };
+  sourcesHeader.onmouseout = () => {
+    sourcesHeader.style.background = '#1a1a1a';
+    sourcesHeader.style.borderColor = '#333333';
+  };
+  
+  cardsContainer.appendChild(leftButton);
+  cardsContainer.appendChild(scrollableArea);
+  cardsContainer.appendChild(rightButton);
+  
+  sourcesContainer.appendChild(sourcesHeader);
+  sourcesContainer.appendChild(cardsContainer);
+  
+  return sourcesContainer;
+}
+
 /* ===== icons (unchanged) ===== */
 function getIconSVG(type){
 const icons = {
@@ -619,7 +1013,10 @@ const icons = {
   'thumbs-up':'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>',
   'thumbs-down':'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>',
   mic:'<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg>',
-       send:'<svg width="22" height="22" viewBox="0 0 24 24" fill="white" style="transform: translateX(1px);"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>'
+  send:'<svg width="22" height="22" viewBox="0 0 24 24" fill="white" style="transform: translateX(1px);"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
+  expand:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
+  shrink:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>',
+  chat:'<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>'
 };
 return icons[type] || '';
 }
@@ -639,13 +1036,14 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
   chip.style.cssText = `
     width:28px; height:28px;
     display:flex; align-items:center; justify-content:center;
-    border-radius:10px; background:#F3F5FA; border:1px solid var(--border);
+    border-radius:10px; background:#1a1a1a; border:1px solid #333333;
     cursor:pointer; transition: background .15s ease, border-color .15s ease, transform .1s ease;
-    box-shadow: 0 3px 8px rgba(17,24,39,.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,.2);
+    color: #ffffff;
   `;
   chip.innerHTML = getIconSVG(icon);
-  chip.onmouseover = ()=>{ chip.style.background='#EEF2FF'; chip.style.borderColor='var(--ciq-blue)'; chip.style.transform='translateY(-1px)'; };
-  chip.onmouseout  = ()=>{ chip.style.background='#F3F5FA'; chip.style.borderColor='var(--border)'; chip.style.transform='none'; };
+  chip.onmouseover = ()=>{ chip.style.background='#333333'; chip.style.borderColor='var(--ciq-blue)'; chip.style.transform='translateY(-1px)'; };
+  chip.onmouseout  = ()=>{ chip.style.background='#1a1a1a'; chip.style.borderColor='#333333'; chip.style.transform='none'; };
   
   // Add click functionality for copy button
   if (icon === 'copy') {
@@ -661,9 +1059,9 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         
         setTimeout(() => {
           chip.innerHTML = originalHTML;
-          chip.style.background = '#F3F5FA';
-          chip.style.borderColor = 'var(--border)';
-          chip.style.color = 'currentColor';
+          chip.style.background = '#1a1a1a';
+          chip.style.borderColor = '#333333';
+          chip.style.color = '#ffffff';
         }, 1500);
       } catch (err) {
         console.error('Failed to copy text: ', err);
@@ -693,15 +1091,15 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         // First, reset all feedback buttons in this container to default state
         const allFeedbackButtons = chip.parentElement.querySelectorAll('[data-feedback-button]');
         allFeedbackButtons.forEach(btn => {
-          btn.style.background = '#F3F5FA';
-          btn.style.borderColor = 'var(--border)';
+          btn.style.background = '#1a1a1a';
+          btn.style.borderColor = '#333333';
           btn.style.transform = 'none';
-          btn.style.color = 'currentColor';
+          btn.style.color = '#ffffff';
           btn.classList.remove('selected-feedback');
         });
         
         // Show immediate visual feedback that the button was clicked
-        chip.style.background = icon === 'thumbs-up' ? '#E0F2E9' : '#FEE2E2';
+        chip.style.background = icon === 'thumbs-up' ? '#1a3d1a' : '#3d1a1a';
         chip.style.borderColor = icon === 'thumbs-up' ? '#10B981' : '#EF4444';
         chip.style.transform = 'translateY(-2px)';
         chip.classList.add('selected-feedback');
@@ -719,9 +1117,9 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         setTimeout(() => {
           // Return to the selected state, not the original state
           chip.innerHTML = originalHTML;
-          chip.style.background = icon === 'thumbs-up' ? '#E0F2E9' : '#FEE2E2';
+          chip.style.background = icon === 'thumbs-up' ? '#1a3d1a' : '#3d1a1a';
           chip.style.borderColor = icon === 'thumbs-up' ? '#10B981' : '#EF4444';
-          chip.style.color = 'currentColor';
+          chip.style.color = '#ffffff';
         }, 1500);
       } catch (err) {
         console.error('Failed to send feedback:', err);
@@ -752,19 +1150,38 @@ av.textContent = isUser ? 'U' : 'S';
 const messageContainer = document.createElement('div');
 messageContainer.style.cssText = `flex:1; display:flex; flex-direction:column; align-items:${isUser ? 'flex-end' : 'flex-start'};`;
 
+// Parse sources from the message
+const sources = !isUser ? parseSources(message) : [];
+const messageWithoutSources = !isUser ? message.replace(/Sources[\s\S]*$/, '').trim() : message;
+
 const bubble = document.createElement('div');
 bubble.style.cssText = `
-  background:${isUser ? 'var(--ciq-blue)' : 'var(--bubble)'};
-  color:${isUser ? '#fff' : '#000'};
+  background:${isUser ? 'var(--ciq-blue)' : '#1a1a1a'};
+  color:${isUser ? '#fff' : '#ffffff'};
   padding: 12px 16px;
   border-radius: 20px;
-  border: 1px solid ${isUser ? 'var(--ciq-blue)' : 'var(--border)'};
-  font-size:15px; line-height:1.45; max-width:80%; word-wrap:break-word; overflow-wrap:break-word;
-  box-shadow:${isUser ? '0 12px 28px rgba(36,107,253,.30)' : '0 8px 22px rgba(17,24,39,.06)'};
+  border: 1px solid ${isUser ? 'var(--ciq-blue)' : '#333333'};
+  font-size:15px; line-height:1.45; 
+  width:${isUser ? 'auto' : '80%'}; 
+  max-width:${isUser ? 'none' : '100%'};
+  word-wrap:break-word; 
+  overflow-wrap:break-word;
+  word-break: break-word;
+  hyphens: auto;
+  overflow: hidden;
+  box-shadow:${isUser ? '0 12px 28px rgba(36,107,253,.30)' : '0 8px 22px rgba(0,0,0,.3)'};
 `;
-bubble.innerHTML = parseMarkdown(message);
+bubble.innerHTML = parseMarkdown(messageWithoutSources);
 
 messageContainer.appendChild(bubble);
+
+// Add source cards if sources exist
+if (sources && sources.length > 0) {
+  const sourceCards = createSourceCards(sources);
+  if (sourceCards) {
+    messageContainer.appendChild(sourceCards);
+  }
+}
 
     // Add action icons only for agent messages (not user messages) that have valid message IDs
   if (!isUser && serverMessageId) {
@@ -784,6 +1201,74 @@ messageContainer.appendChild(bubble);
 row.append(av, messageContainer);
 chatArea.appendChild(row);
 chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function addTypingIndicator() {
+  const row = document.createElement('div'); 
+  row.id = 'typing-indicator';
+  row.style.cssText = `
+    display:flex; align-items:flex-start; gap:12px; margin: 0 0 20px;
+  `;
+  
+  const av = document.createElement('div');
+  av.style.cssText = `
+    width:40px; height:40px; border-radius:50%; flex-shrink:0;
+    background: var(--ciq-blue); color:#fff; font-weight:700; font-size:15px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 10px 22px rgba(36,107,253,.35);
+  `;
+  av.textContent = 'S';
+
+  const messageContainer = document.createElement('div');
+  messageContainer.style.cssText = `flex:1; display:flex; flex-direction:column; align-items:flex-start;`;
+
+  const bubble = document.createElement('div');
+  bubble.style.cssText = `
+    background: var(--bubble);
+    color: #000;
+    padding: 12px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    font-size:15px; line-height:1.45; max-width:80%;
+    box-shadow: 0 8px 22px rgba(17,24,39,.06);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  `;
+  
+  // Create typing dots
+  const dots = document.createElement('div');
+  dots.style.cssText = `
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  `;
+  
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement('div');
+    dot.style.cssText = `
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #6B7280;
+      animation: typing-dot 1.4s infinite ease-in-out;
+      animation-delay: ${i * 0.16}s;
+    `;
+    dots.appendChild(dot);
+  }
+  
+  bubble.appendChild(dots);
+  messageContainer.appendChild(bubble);
+  row.append(av, messageContainer);
+  chatArea.appendChild(row);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function removeTypingIndicator() {
+  const typingIndicator = document.getElementById('typing-indicator');
+  if (typingIndicator) {
+    typingIndicator.remove();
+  }
 }
 
 async function sendFeedback(messageId, feedbackType) {
@@ -855,6 +1340,9 @@ if (threadTimedOut) {
 // Update session activity when user sends a message
 updateSessionActivity();
 
+// Show typing indicator
+addTypingIndicator();
+
 try{
   const auth = await buildAuth();
   const res = await fetch(BACKEND + '/api/widget/chat', {
@@ -866,6 +1354,10 @@ try{
     },
     body: JSON.stringify({ ...auth, message })
   });
+  
+  // Remove typing indicator before processing response
+  removeTypingIndicator();
+  
   if(!res.ok){ 
     // Don't create message ID for server errors - just show error message
     addMessage(`Error: ${res.status}`, false, null); 
@@ -957,6 +1449,9 @@ try{
     updateSessionActivity();
   }
 }catch(e){
+  // Remove typing indicator on error
+  removeTypingIndicator();
+  
   // Network errors or other exceptions - don't create message ID for these either
   addMessage('Sorry, I encountered an error. Please try again.', false, null);
   console.error('[contentIQ widget] Network or other error:', e);
