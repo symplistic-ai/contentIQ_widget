@@ -3,7 +3,7 @@
  * Mounts a modern chat interface inside the placeholder div and
  * talks to the backend with signed site-token + replay-safe ts|sig.
  * 
- * Version: 2.0.0 - Clean session IDs without user agent
+ * Version: 2.1.0 - Custom styling integration with POST auth
  * 
  * Session Configuration:
  * To customize session expiry time, set window.contentIQConfig before loading the widget:
@@ -12,7 +12,16 @@
  * </script>
  */
 
-(async () => {
+// Load widget immediately - no async, no delays
+(function() {
+  // Capture script tag and dataset values immediately
+  const SCRIPT_TAG = document.currentScript;
+  if (!SCRIPT_TAG) {
+    console.error('[contentIQ widget] Script tag not found');
+    return;
+  }
+  const SITE_TOKEN = SCRIPT_TAG.dataset.token;
+  
   // Locate elements & dataset values supplied by embed snippet
   const ROOT = document.querySelector('.contentiq_symplisticai_chat');
   if (!ROOT) {
@@ -20,8 +29,6 @@
     return;
   }
   const AGENT_ID   = ROOT.dataset.agent;
-  const SCRIPT_TAG = document.currentScript;
-  const SITE_TOKEN = SCRIPT_TAG.dataset.token;
   const BACKEND    = 'http://localhost:1234';
 
   // Session management for conversation continuity
@@ -197,11 +204,97 @@
     }
   })();
 
+  /* ───── fetch and apply custom styling ────────────────── */
+  // Default styling values extracted from actual widget CSS variables and styling
+  const defaultStyling = {
+    brandName: "symplistic.contentIQ",
+    defaultMessage: "Welcome to symplistic.ai! Ask me anything!",
+    backgroundColor: "linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #000000 100%)",
+    accentColor: "#246BFD", // --ciq-blue
+    accentColorDark: "#0F56E0", // --ciq-blue-dark
+    textColor: "#111827", // --ink
+    mutedColor: "#8E8E93", // --muted
+    borderColor: "#E5E8F0", // --border
+    agentName: "ContentIQ",
+    headerColor: "#ffffff",
+    agentBubbleColor: "#1a1a1a",
+    agentTextColor: "#ffffff",
+    userBubbleColor: "#246BFD", // var(--ciq-blue)
+    userCircleColor: "#246BFD", // var(--ciq-blue)
+    userTextColor: "#ffffff",
+    inputBackgroundColor: "linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)",
+    inputTextColor: "#ffffff",
+    // Additional styling from ROOT.style.cssText
+    rootBorder: "#ECEEF5",
+    rootBoxShadow: "0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06)",
+    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial"
+  };
+
+  let customStyling = { ...defaultStyling };
+
+  // Function to fetch custom styling
+  async function fetchCustomStyling() {
+    try {
+      console.log('[contentIQ widget] Fetching custom styling with GET method...');
+      const { ts, sig } = await buildAuth();
+      const url = new URL(BACKEND + '/api/deploy/getEmbedStyling');
+      url.searchParams.set('agent_id', AGENT_ID);
+      url.searchParams.set('token', SITE_TOKEN);
+      url.searchParams.set('ts', ts);
+      url.searchParams.set('sig', sig);
+      
+      const res = await fetch(url);
+      
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[contentIQ widget] Fetched custom styling response:', data);
+        
+        // Handle nested response structure
+        if (data.success && data.styling) {
+          const styling = data.styling;
+          console.log('[contentIQ widget] Using custom styling:', styling);
+          return { ...defaultStyling, ...styling }; // Merge with defaults
+        } else {
+          console.log('[contentIQ widget] Invalid response structure, using defaults');
+          return defaultStyling;
+        }
+      } else {
+        console.log('[contentIQ widget] No custom styling found, using defaults');
+        return defaultStyling;
+      }
+    } catch (err) {
+      console.warn('[contentIQ widget] Error fetching custom styling:', err);
+      return defaultStyling;
+    }
+  }
+
 
 
   /* ============ ============ ============ ============ 
       CSS & JS FOR STYLING THE WIDGET
   ============ ============ ============ =============== */
+
+  // Fetch custom styling AFTER all helper functions and default styling are defined
+  // Make it non-blocking so widget loads immediately
+  fetchCustomStyling().then(styling => {
+    customStyling = styling;
+    // Apply the custom styling after it loads
+    applyCustomStyling();
+  }).catch(err => {
+    console.warn('[contentIQ widget] Using default styling due to fetch error:', err);
+  });
+  
+  // Function to apply custom styling
+  function applyCustomStyling() {
+    ROOT.style.setProperty('--ciq-blue', customStyling.accentColor);
+    ROOT.style.setProperty('--ciq-blue-dark', customStyling.accentColorDark || customStyling.accentColor);
+    ROOT.style.setProperty('--ink', customStyling.textColor);
+    ROOT.style.setProperty('--muted', customStyling.mutedColor);
+    ROOT.style.setProperty('--border', customStyling.borderColor);
+  }
+  
+  // Apply CSS variables to ROOT element immediately with defaults
+  applyCustomStyling();
 
 
 
@@ -299,7 +392,7 @@ const logo = document.createElement('div');
 // `;
 // logo.textContent = 'S';
 const title = document.createElement('div');
-title.innerHTML = '<span style="color:#ffffff;">symplistic.</span><span style="color:var(--ciq-blue)">contentIQ</span>';
+title.innerHTML = `<span style="color:${customStyling.headerColor};">${customStyling.brandName}</span>`;
 title.style.cssText = `
 font-weight: 800; font-size: 18px; letter-spacing:.2px; margin-top: 10px;
 margin-left: -18px;
@@ -330,7 +423,7 @@ background: var(--ciq-blue); color:#fff; font-weight:700; font-size:15px;
 display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
 `;
-botAvatar.textContent = 'S';
+botAvatar.textContent = customStyling.agentName.charAt(0).toUpperCase();
 
 const messageContent = document.createElement('div');
 messageContent.style.cssText = `flex:1;`;
@@ -339,28 +432,28 @@ const botName = document.createElement('div');
 botName.style.cssText = `
 font-weight:700; font-size:15px; color:#ffffff; margin: 4px 0 8px; display:flex; align-items:center; gap:12px;
 `;
-botName.textContent = 'ContentIQ';
+botName.textContent = customStyling.agentName;
 
 /* thin, rounded, airy bubble like screenshot */
 const messageBubble = document.createElement('div');
 messageBubble.style.cssText = `
-background: #1a1a1a;
+background: ${customStyling.agentBubbleColor};
 border: 1px solid #333333;
-color: #ffffff;
+color: ${customStyling.agentTextColor};
 padding: 14px 16px;
 border-radius: 20px;
 font-size: 15px; line-height: 1.45;
-width: 80%;
+width: 96%;
 max-width: 100%;
 word-wrap: break-word;
 overflow-wrap: break-word;
-word-break: break-word;
-hyphens: auto;
+word-break: normal;
+hyphens: none;
 overflow: hidden;
 box-shadow: 0 8px 22px rgba(0,0,0,.3);
 margin-bottom: 16px;
 `;
-messageBubble.textContent = "Welcome to symplistic.ai! Ask me anything!";
+messageBubble.textContent = customStyling.defaultMessage;
 
 /* action icon row under bubble */
 const actionIcons = document.createElement('div');
@@ -405,11 +498,11 @@ input.placeholder='Ask me anything...';
 input.style.cssText = `
 width: 100%;
 height: 56px;
-background: linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%);
+background: ${customStyling.inputBackgroundColor};
 border: 1px solid #333333;
 border-radius: 22px;
 padding: 0 76px 0 50px;            /* room for mic + right breathing */
-font-size: 16px; color: #ffffff; outline: none;
+font-size: 16px; color: ${customStyling.inputTextColor}; outline: none;
 box-shadow:
   inset 0 1px 0 rgba(255,255,255,.1),
   0 12px 28px rgba(0,0,0,.3);
@@ -468,6 +561,103 @@ _ciqStyle.textContent += `
 .contentiq_symplisticai_chat li { 
   margin: 4px 0; 
   line-height: 1.4; 
+}
+.contentiq_symplisticai_chat pre {
+  background: rgba(0,0,0,0.1);
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.contentiq_symplisticai_chat pre code {
+  background: none;
+  padding: 0;
+}
+.contentiq_symplisticai_chat .list-item {
+  margin: 8px 0;
+  line-height: 1.4;
+  padding-left: 0;
+}
+.contentiq_symplisticai_chat .list-item strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+.contentiq_symplisticai_chat blockquote {
+  border-left: 4px solid var(--ciq-blue);
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: rgba(36,107,253,0.1);
+  border-radius: 0 6px 6px 0;
+}
+.contentiq_symplisticai_chat h1, .contentiq_symplisticai_chat h2, .contentiq_symplisticai_chat h3,
+.contentiq_symplisticai_chat h4, .contentiq_symplisticai_chat h5, .contentiq_symplisticai_chat h6 {
+  margin: 12px 0 6px 0;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #ffffff;
+}
+.contentiq_symplisticai_chat h1 { font-size: 20px; }
+.contentiq_symplisticai_chat h2 { font-size: 18px; }
+.contentiq_symplisticai_chat h3 { font-size: 16px; }
+.contentiq_symplisticai_chat h4 { font-size: 15px; }
+.contentiq_symplisticai_chat h5 { font-size: 14px; }
+.contentiq_symplisticai_chat h6 { font-size: 13px; }
+.contentiq_symplisticai_chat hr {
+  border: none;
+  border-top: 2px solid rgba(255,255,255,0.2);
+  margin: 12px 0;
+}
+.contentiq_symplisticai_chat .table-wrapper {
+  overflow-x: auto;
+  margin: 8px 0;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.contentiq_symplisticai_chat table {
+  border-collapse: collapse;
+  width: 250%;
+  max-width: 250%;
+  font-size: 13px;
+  background: rgba(0,0,0,0.1);
+  border-radius: 6px;
+  overflow: hidden;
+  table-layout: fixed;
+}
+.contentiq_symplisticai_chat th, .contentiq_symplisticai_chat td {
+  border: 1px solid rgba(255,255,255,0.2);
+  padding: 8px 10px;
+  text-align: left;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  vertical-align: top;
+  white-space: normal;
+  min-width: fit-content;
+}
+.contentiq_symplisticai_chat th {
+  background: rgba(36,107,253,0.2);
+  font-weight: 600;
+  color: #ffffff;
+}
+.contentiq_symplisticai_chat tr:nth-child(even) {
+  background: rgba(255,255,255,0.05);
+}
+.contentiq_symplisticai_chat tr:hover {
+  background: rgba(36,107,253,0.1);
+}
+.contentiq_symplisticai_chat a { 
+  color: var(--ciq-blue); 
+  text-decoration: underline; 
+}
+.contentiq_symplisticai_chat a:hover { 
+  color: #0F56E0; 
 }
 
 /* Feedback button styling */
@@ -532,20 +722,21 @@ const sourceCardStyle = `
   background: #1a1a1a;
   border: 1px solid #333333;
   border-radius: 12px;
-  padding: 12px;
+  padding: 16px 16px 32px 16px;
   margin: 0;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   transition: all 0.2s ease;
   overflow: hidden;
   word-wrap: break-word;
   overflow-wrap: break-word;
-  word-break: break-word;
-  hyphens: auto;
+  word-break: normal;
+  hyphens: none;
   box-sizing: border-box;
+  min-height: 160px;
 `;
 
 const sourceLinkStyle = `
-  color: var(--ciq-blue);
+  color: #246BFD;
   text-decoration: none;
   font-weight: 500;
   border-bottom: 1px solid transparent;
@@ -553,7 +744,7 @@ const sourceLinkStyle = `
 `;
 
 const sourceLinkHoverStyle = `
-  border-bottom-color: var(--ciq-blue);
+  border-bottom-color: #246BFD;
 `;
 
 /* Disclaimer text */
@@ -602,7 +793,7 @@ width: 420px; height: 650px;
 display: none; flex-direction: column; overflow: hidden;
 border-radius: 22px;
 border: 1px solid #333333;
-background: linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #000000 100%);
+background: ${customStyling.backgroundColor};
 box-shadow: 0 22px 48px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2);
 position: relative;
 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -632,6 +823,38 @@ function toggleResize() {
     resizeButton.innerHTML = getIconSVG('expand');
     resizeButton.title = 'Make larger';
   }
+  
+  // Update existing source cards to match new size
+  updateSourceCardsSize();
+}
+
+function updateSourceCardsSize() {
+  // Find all source card containers and update their size
+  const sourceContainers = document.querySelectorAll('.source-cards-container');
+  sourceContainers.forEach(container => {
+    const cardsContainer = container.querySelector('.cards-container');
+    const scrollableArea = container.querySelector('.scrollable-area');
+    const sourceCards = container.querySelectorAll('.source-card');
+    
+    if (cardsContainer && scrollableArea && sourceCards.length > 0) {
+      const newWidth = isExpanded ? '500px' : '300px';
+      
+      // Update container width
+      cardsContainer.style.width = newWidth;
+      cardsContainer.style.maxWidth = newWidth;
+      
+      // Update scrollable area width
+      scrollableArea.style.width = newWidth;
+      scrollableArea.style.maxWidth = newWidth;
+      
+      // Update each source card width
+      sourceCards.forEach(card => {
+        card.style.width = newWidth;
+        card.style.minWidth = newWidth;
+        card.style.maxWidth = newWidth;
+      });
+    }
+  });
 }
 
 /* Toggle function */
@@ -688,33 +911,106 @@ try {
 }
 
 function parseMarkdown(text) {
-if (!text) return '';
+  if (!text) return '';
+  
+  // Escape HTML to prevent XSS
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
-let html = text
-  // Bold text: **text** or __text__
-  .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-  .replace(/__(.*?)__/g, '<strong>$1</strong>')
-  
-  // Italic text: *text* or _text_
-  .replace(/\*(.*?)\*/g, '<em>$1</em>')
-  .replace(/_(.*?)_/g, '<em>$1</em>')
-  
-  // Code: `code`
-  .replace(/`(.*?)`/g, '<code>$1</code>')
-  
+  // Clean up Chinese bracket references - make them smaller and less intrusive
+  html = html.replace(/【(\d+)】/g, '<sup style="color: #6b7280; font-size: 0.8em; font-weight: 500;">[$1]</sup>');
+
+  // Headers
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+  // Horizontal rule
+  html = html.replace(/^---$/gim, '<hr>');
+
+  // Code blocks (fenced)
+  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Tables
+  html = parseMarkdownTables(html);
+
+  // Lists
+  html = parseMarkdownLists(html);
+
+  // Blockquotes
+  html = html.replace(/^> (.+)$/gim, '<blockquote>$1</blockquote>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
   // Line breaks
-  .replace(/\n/g, '<br>')
+  html = html.replace(/\n/g, '<br>');
   
-  // Bullet points: * item or - item
-  .replace(/^\s*[\*\-]\s+(.+)$/gm, '<li>$1</li>')
+  // Clean up trailing <br> tags that create unwanted spacing
+  html = html.replace(/(<br>\s*)+$/g, '');
   
-  // Numbered lists: 1. item
-  .replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+  // Clean up any standalone asterisks at the end
+  html = html.replace(/\s*\*\*\s*$/g, '');
 
-// Wrap lists in ul/ol tags
-html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+  return html;
+}
 
-return html;
+/* ───────────── Helper: Parse Markdown Tables ─────── */
+function parseMarkdownTables(html) {
+  // Match table pattern: header row with | separators, separator row, then data rows
+  const tableRegex = /(\|.+\|[\r\n]+\|[\s\-\|]+\|[\r\n]+(?:\|.+\|[\r\n]*)+)/g;
+  
+  return html.replace(tableRegex, (match) => {
+    const lines = match.trim().split('\n').filter(line => line.trim());
+    if (lines.length < 2) return match;
+
+    const headerRow = lines[0];
+    const separatorRow = lines[1];
+    const dataRows = lines.slice(2);
+
+    // Parse header
+    const headers = headerRow.split('|').slice(1, -1).map(h => h.trim());
+    const headerHtml = headers.map(h => `<th>${h}</th>`).join('');
+
+    // Parse data rows
+    const rowsHtml = dataRows.map(row => {
+      const cells = row.split('|').slice(1, -1).map(c => c.trim());
+      const cellsHtml = cells.map(c => `<td>${c}</td>`).join('');
+      return `<tr>${cellsHtml}</tr>`;
+    }).join('');
+
+    return `<div class="table-wrapper" style="overflow-x: auto; width: 100%; max-width: 100%; box-sizing: border-box;"><table style="width: 250%; max-width: 250%; table-layout: fixed;"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+  });
+}
+
+/* ───────────── Helper: Parse Markdown Lists ─────── */
+function parseMarkdownLists(html) {
+  // Handle bold text with dashes (like "**Term life insurance** — description")
+  html = html.replace(/\*\*(.+?)\*\* — (.+)/g, '<div class="list-item"><strong>$1</strong> — $2</div>');
+  
+  // Handle bold text with dashes (alternative format)
+  html = html.replace(/\*\*(.+?)\*\* – (.+)/g, '<div class="list-item"><strong>$1</strong> – $2</div>');
+  
+  // Handle bold text with dashes (another alternative)
+  html = html.replace(/\*\*(.+?)\*\* - (.+)/g, '<div class="list-item"><strong>$1</strong> - $2</div>');
+  
+  // Keep ordered lists for numbered lists
+  html = html.replace(/^[\s]*\d+\. (.+)$/gim, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>[\s]*)+/g, (match) => {
+    return `<ol>${match}</ol>`;
+  });
+
+  return html;
 }
 
 function parseSources(text) {
@@ -745,15 +1041,19 @@ function parseSources(text) {
   return sources;
 }
 
-function createSourceCards(sources) {
+function createSourceCards(sources, expanded = false) {
   if (!sources || sources.length === 0) return null;
   
   // Create the main sources container
   const sourcesContainer = document.createElement('div');
+  sourcesContainer.className = 'source-cards-container';
   sourcesContainer.style.cssText = `
     margin-top: 16px;
     display: flex;
     flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   `;
   
   // Create the dropdown header
@@ -793,23 +1093,38 @@ function createSourceCards(sources) {
   
   // Create the scrollable cards container (initially hidden)
   const cardsContainer = document.createElement('div');
+  cardsContainer.className = 'cards-container';
   cardsContainer.style.cssText = `
     display: none;
     margin-top: 12px;
     position: relative;
+    width: ${expanded ? '500px' : '300px'};
+    max-width: ${expanded ? '500px' : '300px'};
+    box-sizing: border-box;
+    overflow: hidden;
+    height: 180px;
+    margin-left: auto;
+    margin-right: auto;
   `;
   
   const scrollableArea = document.createElement('div');
+  scrollableArea.className = 'scrollable-area';
+  const scrollableWidth = expanded ? '500px' : '300px';
   scrollableArea.style.cssText = `
     display: flex;
-    gap: 12px;
-    overflow-x: auto;
+    gap: 0;
+    overflow: hidden;
     scroll-behavior: smooth;
     padding: 8px 0;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    width: 100%;
-    max-width: 100%;
+    width: ${scrollableWidth};
+    max-width: ${scrollableWidth};
+    flex-wrap: nowrap;
+    position: relative;
+    box-sizing: border-box;
+    min-width: 0;
+    height: 180px;
   `;
   
   // Hide scrollbar
@@ -832,14 +1147,14 @@ function createSourceCards(sources) {
   const leftButton = document.createElement('button');
   leftButton.style.cssText = `
     position: absolute;
-    left: -8px;
+    left: 8px;
     top: 50%;
     transform: translateY(-50%);
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     border: none;
-    background: #1a1a1a;
+    background: rgba(26,26,26,0.8);
     border: 1px solid #333333;
     color: #ffffff;
     cursor: pointer;
@@ -849,6 +1164,7 @@ function createSourceCards(sources) {
     z-index: 10;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     transition: all 0.2s ease;
+    opacity: 0.7;
   `;
   leftButton.innerHTML = '‹';
   leftButton.onmouseover = () => { 
@@ -863,14 +1179,14 @@ function createSourceCards(sources) {
   const rightButton = document.createElement('button');
   rightButton.style.cssText = `
     position: absolute;
-    right: -8px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     border: none;
-    background: #1a1a1a;
+    background: rgba(26,26,26,0.8);
     border: 1px solid #333333;
     color: #ffffff;
     cursor: pointer;
@@ -880,6 +1196,7 @@ function createSourceCards(sources) {
     z-index: 10;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     transition: all 0.2s ease;
+    opacity: 0.7;
   `;
   rightButton.innerHTML = '›';
   rightButton.onmouseover = () => { 
@@ -892,14 +1209,17 @@ function createSourceCards(sources) {
   };
   
   // Create individual source cards
-  sources.forEach(source => {
+  sources.forEach((source, index) => {
     const sourceCard = document.createElement('div');
+    sourceCard.className = 'source-card';
+    const cardWidth = expanded ? '500px' : '300px';
     sourceCard.style.cssText = `
       ${sourceCardStyle}
-      width: 100%;
-      min-width: 0;
-      max-width: 100%;
+      width: ${cardWidth};
+      min-width: ${cardWidth};
+      max-width: ${cardWidth};
       flex-shrink: 0;
+      flex-grow: 0;
       overflow: hidden;
       box-sizing: border-box;
     `;
@@ -917,7 +1237,7 @@ function createSourceCards(sources) {
     
     const sourceNumber = document.createElement('span');
     sourceNumber.style.cssText = `
-      background: var(--ciq-blue);
+      background: #246BFD;
       color: white;
       font-size: 12px;
       font-weight: 600;
@@ -943,15 +1263,17 @@ function createSourceCards(sources) {
     const sourceDescription = document.createElement('div');
     sourceDescription.style.cssText = `
       color: #cccccc;
-      font-size: 14px;
-      line-height: 1.4;
+      font-size: 15px;
+      line-height: 1.5;
       word-wrap: break-word;
       overflow-wrap: break-word;
-      word-break: break-word;
-      hyphens: auto;
+      word-break: normal;
+      hyphens: none;
       overflow: hidden;
       max-width: 100%;
       white-space: normal;
+      min-height: 60px;
+      box-sizing: border-box;
     `;
     sourceDescription.textContent = source.description;
     
@@ -960,14 +1282,39 @@ function createSourceCards(sources) {
     scrollableArea.appendChild(sourceCard);
   });
   
-  // Add scroll functionality
+  // Add carousel navigation functionality
+  let currentIndex = 0;
+  
+  // Function to update button visibility
+  function updateButtonVisibility() {
+    leftButton.style.display = currentIndex > 0 ? 'flex' : 'none';
+    rightButton.style.display = currentIndex < sources.length - 1 ? 'flex' : 'none';
+  }
+  
+  // Function to scroll to a specific index
+  function scrollToIndex(index) {
+    if (index >= 0 && index < sources.length) {
+      currentIndex = index;
+      const cardWidth = expanded ? 500 : 300; // Responsive card width
+      scrollableArea.scrollTo({ left: index * cardWidth, behavior: 'smooth' });
+      updateButtonVisibility();
+    }
+  }
+  
   leftButton.onclick = () => {
-    scrollableArea.scrollBy({ left: -300, behavior: 'smooth' });
+    if (currentIndex > 0) {
+      scrollToIndex(currentIndex - 1);
+    }
   };
   
   rightButton.onclick = () => {
-    scrollableArea.scrollBy({ left: 300, behavior: 'smooth' });
+    if (currentIndex < sources.length - 1) {
+      scrollToIndex(currentIndex + 1);
+    }
   };
+  
+  // Initialize button visibility
+  updateButtonVisibility();
   
   // Toggle dropdown functionality
   let isExpanded = false;
@@ -978,6 +1325,10 @@ function createSourceCards(sources) {
       dropdownIcon.style.transform = 'rotate(180deg)';
       sourcesHeader.style.borderBottomLeftRadius = '0';
       sourcesHeader.style.borderBottomRightRadius = '0';
+      // Reset carousel to first card when opening
+      currentIndex = 0;
+      scrollableArea.scrollTo({ left: 0, behavior: 'smooth' });
+      updateButtonVisibility();
     } else {
       cardsContainer.style.display = 'none';
       dropdownIcon.style.transform = 'rotate(0deg)';
@@ -1139,13 +1490,19 @@ row.style.cssText = `
   ${isUser ? 'flex-direction: row-reverse;' : ''}
 `;
 const av = document.createElement('div');
+const avatarColor = isUser ? (customStyling.userCircleColor || 'var(--ciq-blue)') : (customStyling.accentColor || 'var(--ciq-blue)');
 av.style.cssText = `
   width:40px; height:40px; border-radius:50%; flex-shrink:0;
-  background: var(--ciq-blue); color:#fff; font-weight:700; font-size:15px;
+  background: ${avatarColor}; color:#fff; font-weight:700; font-size:15px;
   display:flex; align-items:center; justify-content:center;
   box-shadow: 0 10px 22px rgba(36,107,253,.35);
 `;
-av.textContent = isUser ? 'U' : 'S';
+if (isUser) {
+  av.textContent = 'U';
+} else {
+  const firstLetter = (customStyling.agentName || 'ContentIQ').charAt(0).toUpperCase();
+  av.textContent = firstLetter;
+}
 
 const messageContainer = document.createElement('div');
 messageContainer.style.cssText = `flex:1; display:flex; flex-direction:column; align-items:${isUser ? 'flex-end' : 'flex-start'};`;
@@ -1156,19 +1513,20 @@ const messageWithoutSources = !isUser ? message.replace(/Sources[\s\S]*$/, '').t
 
 const bubble = document.createElement('div');
 bubble.style.cssText = `
-  background:${isUser ? 'var(--ciq-blue)' : '#1a1a1a'};
-  color:${isUser ? '#fff' : '#ffffff'};
+  background:${isUser ? (customStyling.userBubbleColor || 'var(--ciq-blue)') : (customStyling.agentBubbleColor || '#1a1a1a')};
+  color:${isUser ? (customStyling.userTextColor || '#fff') : (customStyling.agentTextColor || '#ffffff')};
   padding: 12px 16px;
   border-radius: 20px;
-  border: 1px solid ${isUser ? 'var(--ciq-blue)' : '#333333'};
+  border: 1px solid ${isUser ? (customStyling.userBubbleColor || 'var(--ciq-blue)') : '#333333'};
   font-size:15px; line-height:1.45; 
-  width:${isUser ? 'auto' : '80%'}; 
+  width:${isUser ? 'auto' : '96%'}; 
   max-width:${isUser ? 'none' : '100%'};
+  overflow: hidden;
   word-wrap:break-word; 
   overflow-wrap:break-word;
   word-break: break-word;
   hyphens: auto;
-  overflow: hidden;
+  box-sizing: border-box;
   box-shadow:${isUser ? '0 12px 28px rgba(36,107,253,.30)' : '0 8px 22px rgba(0,0,0,.3)'};
 `;
 bubble.innerHTML = parseMarkdown(messageWithoutSources);
@@ -1177,7 +1535,9 @@ messageContainer.appendChild(bubble);
 
 // Add source cards if sources exist
 if (sources && sources.length > 0) {
-  const sourceCards = createSourceCards(sources);
+  // Check current resize state when creating source cards
+  const currentExpandedState = ROOT.style.width === '600px';
+  const sourceCards = createSourceCards(sources, currentExpandedState);
   if (sourceCards) {
     messageContainer.appendChild(sourceCards);
   }
@@ -1462,4 +1822,5 @@ try{
 input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && input.value.trim()) sendMessage(input.value.trim()); });
 sendButton.addEventListener('click', ()=>{ if(input.value.trim()) sendMessage(input.value.trim()); });
 micButton.addEventListener('click', ()=> console.log('Voice input clicked'));
-})();
+
+})(); // End of immediate loading function
