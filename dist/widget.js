@@ -29,7 +29,7 @@
     return;
   }
   const AGENT_ID   = ROOT.dataset.agent;
-  const BACKEND    = 'http://localhost:1234';
+  const BACKEND    = SCRIPT_TAG.dataset.backend || 'http://localhost:1234';
 
   // Session management for conversation continuity
   let sessionId = null;
