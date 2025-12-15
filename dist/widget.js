@@ -285,6 +285,37 @@
     ROOT.style.setProperty('--border', customStyling.borderColor);
   }
 
+  // Source card and link styling constants need to be available
+  // to both the initial UI build and later message rendering,
+  // so keep them at top-level scope (not inside buildUI/createSourceCards).
+  const sourceCardStyle = `
+  background: #1a1a1a;
+  border: 1px solid #333333;
+  border-radius: 12px;
+  padding: 16px 16px 32px 16px;
+  margin: 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  transition: all 0.2s ease;
+  overflow: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+  box-sizing: border-box;
+  min-height: 160px;
+`;
+
+  const sourceLinkStyle = `
+  color: #246BFD;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+`;
+
+  const sourceLinkHoverStyle = `
+  border-bottom-color: #246BFD;
+`;
 
 
   /* ====== CSS & JS FOR STYLING THE WIDGET ====== */
@@ -705,36 +736,6 @@ _ciqStyle.textContent += `
 
 
 document.head.appendChild(_ciqStyle);
-
-/* Source cards styling */
-const sourceCardStyle = `
-  background: #1a1a1a;
-  border: 1px solid #333333;
-  border-radius: 12px;
-  padding: 16px 16px 32px 16px;
-  margin: 0;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  transition: all 0.2s ease;
-  overflow: hidden;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  word-break: normal;
-  hyphens: none;
-  box-sizing: border-box;
-  min-height: 160px;
-`;
-
-const sourceLinkStyle = `
-  color: #246BFD;
-  text-decoration: none;
-  font-weight: 500;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease;
-`;
-
-const sourceLinkHoverStyle = `
-  border-bottom-color: #246BFD;
-`;
 
 /* Disclaimer text */
 const disclaimer = document.createElement('div');
