@@ -323,14 +323,14 @@
   ROOT.style.cssText = `
   --ciq-blue:#246BFD; --ciq-blue-dark:#0F56E0;
   --ink:#111827; --muted:#8E8E93; --border:#E5E8F0;
-
+  
   position: fixed; bottom: 60px; right: 24px;
   width: 64px; height: 64px;             /* Start as small icon */
   display:flex; align-items:center; justify-content:center; z-index:9999;
   border-radius: 50%;
-  border: 1px solid #ECEEF5;
-  background: var(--ciq-blue);
-  box-shadow: 0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06);
+  border: none;
+  background: transparent;
+  box-shadow: none;
   font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial;
   color: var(--ink);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -768,7 +768,7 @@ inputArea.append(inputRow, disclaimer);
 /* Create initial icon */
 chatIcon = document.createElement('div');
 chatIcon.style.cssText = `
-width: 40px; height: 40px; border-radius: 50%;
+width: 64px; height: 64px; border-radius: 50%;
 background: var(--ciq-blue); color:#fff; font-weight:700; font-size:18px;
 display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
@@ -789,30 +789,62 @@ position: relative;
 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 `;
 
-/* Resize functionality */
+/* Resize & responsive functionality */
 let isExpanded = false;
 let isResizing = false;
+const MOBILE_BREAKPOINT = 640;
+
+function isMobileViewport() {
+  return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+function applyOpenLayout() {
+  if (isMobileViewport()) {
+    // Mobile: use full-screen overlay style
+    ROOT.style.right = '0';
+    ROOT.style.bottom = '0';
+    ROOT.style.width = '100vw';
+    ROOT.style.height = '100vh';
+    ROOT.style.borderRadius = '0';
+    chatInterface.style.width = '100%';
+    chatInterface.style.height = '100%';
+  } else {
+    // Desktop / tablet: use card sizes with optional expansion,
+    // but cap by viewport height so it stays vertically responsive
+    const baseWidth = isExpanded ? 600 : 420;
+    const baseHeight = isExpanded ? 800 : 650;
+    const verticalMargin = 120; // space from top/bottom of window
+    const maxAllowedHeight = Math.max(360, window.innerHeight - verticalMargin);
+    const finalHeight = Math.min(baseHeight, maxAllowedHeight);
+
+    ROOT.style.right = '24px';
+    ROOT.style.bottom = '60px';
+    ROOT.style.borderRadius = '22px';
+    ROOT.style.width = `${baseWidth}px`;
+    ROOT.style.height = `${finalHeight}px`;
+    chatInterface.style.width = `${baseWidth}px`;
+    chatInterface.style.height = `${finalHeight}px`;
+  }
+}
+
+function applyClosedLayout() {
+  ROOT.style.right = '24px';
+  ROOT.style.bottom = '60px';
+  ROOT.style.width = '64px';
+  ROOT.style.height = '64px';
+  ROOT.style.borderRadius = '50%';
+}
 
 function toggleResize() {
+  // On mobile, we always use full-screen; ignore manual resize
+  if (isMobileViewport()) return;
+
   isExpanded = !isExpanded;
   
-  if (isExpanded) {
-    // Expand to larger size
-    ROOT.style.width = '600px';
-    ROOT.style.height = '800px';
-    chatInterface.style.width = '600px';
-    chatInterface.style.height = '800px';
-    resizeButton.innerHTML = getIconSVG('shrink');
-    resizeButton.title = 'Make smaller';
-  } else {
-    // Return to normal size
-    ROOT.style.width = '420px';
-    ROOT.style.height = '650px';
-    chatInterface.style.width = '420px';
-    chatInterface.style.height = '650px';
-    resizeButton.innerHTML = getIconSVG('expand');
-    resizeButton.title = 'Make larger';
-  }
+  applyOpenLayout();
+
+  resizeButton.innerHTML = getIconSVG(isExpanded ? 'shrink' : 'expand');
+  resizeButton.title = isExpanded ? 'Make smaller' : 'Make larger';
   
   // Update existing source cards to match new size
   updateSourceCardsSize();
@@ -854,9 +886,7 @@ isOpen = !isOpen;
 
 if (isOpen) {
   // Expand to full chat
-  ROOT.style.width = isExpanded ? '600px' : '420px';
-  ROOT.style.height = isExpanded ? '800px' : '650px';
-  ROOT.style.borderRadius = '22px';
+  applyOpenLayout();
   ROOT.style.flexDirection = 'column';
   ROOT.style.overflow = 'hidden';
   chatIcon.style.display = 'none';
@@ -866,15 +896,23 @@ if (isOpen) {
   updateSessionActivity();
 } else {
   // Collapse to icon
-  ROOT.style.width = '64px';
-  ROOT.style.height = '64px';
-  ROOT.style.borderRadius = '50%';
+  applyClosedLayout();
   ROOT.style.flexDirection = 'row';
   ROOT.style.overflow = 'visible';
   chatIcon.style.display = 'flex';
   chatInterface.style.display = 'none';
 }
 }
+
+// Keep layout responsive when the viewport size changes
+window.addEventListener('resize', () => {
+  if (!chatInterface || !ROOT) return;
+  if (isOpen) {
+    applyOpenLayout();
+  } else {
+    applyClosedLayout();
+  }
+});
 
 /* Add click handler only to the icon */
 chatIcon.addEventListener('click', toggleChat);
