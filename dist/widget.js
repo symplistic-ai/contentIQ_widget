@@ -28,6 +28,8 @@
     console.error('[contentIQ widget] Root DIV not found');
     return;
   }
+  // DOM element references – assigned when we build the UI
+  let header, resizeButton, chatArea, inputArea, input, micButton, sendButton, chatIcon, chatInterface;
   const AGENT_ID   = ROOT.dataset.agent;
   const BACKEND    = SCRIPT_TAG.dataset.backend || 'http://localhost:1234';
 
@@ -274,16 +276,6 @@
       CSS & JS FOR STYLING THE WIDGET
   ============ ============ ============ =============== */
 
-  // Fetch custom styling AFTER all helper functions and default styling are defined
-  // Make it non-blocking so widget loads immediately
-  fetchCustomStyling().then(styling => {
-    customStyling = styling;
-    // Apply the custom styling after it loads
-    applyCustomStyling();
-  }).catch(err => {
-    console.warn('[contentIQ widget] Using default styling due to fetch error:', err);
-  });
-  
   // Function to apply custom styling
   function applyCustomStyling() {
     ROOT.style.setProperty('--ciq-blue', customStyling.accentColor);
@@ -292,14 +284,11 @@
     ROOT.style.setProperty('--muted', customStyling.mutedColor);
     ROOT.style.setProperty('--border', customStyling.borderColor);
   }
-  
-  // Apply CSS variables to ROOT element immediately with defaults
-  applyCustomStyling();
-
 
 
 
   /* ====== CSS & JS FOR STYLING THE WIDGET ====== */
+  function buildUI() {
   ROOT.style.cssText = `
   --ciq-blue:#246BFD; --ciq-blue-dark:#0F56E0;
   --ink:#111827; --muted:#8E8E93; --border:#E5E8F0;
@@ -317,7 +306,7 @@
 `;
 
 /* Header brand row */
-const header = document.createElement('div');
+header = document.createElement('div');
 header.style.cssText = `
 background: transparent;
 padding: 18px 22px 0;                    /* tighter top bar */
@@ -356,7 +345,7 @@ toggleChat();
 };
 
 /* Resize button */
-const resizeButton = document.createElement('button');
+resizeButton = document.createElement('button');
 resizeButton.style.cssText = `
 position: absolute;
 top: 18px;
@@ -403,7 +392,7 @@ timestamp.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minut
 header.append(logo, title, timestamp, resizeButton, closeButton);
 
 /* Scroll area */
-const chatArea = document.createElement('div');
+chatArea = document.createElement('div');
 chatArea.style.cssText = `
 flex:1; overflow-y:auto;
 padding: 60px 22px 10px 22px;            /* ↑ adds space under header */
@@ -484,7 +473,7 @@ suggestedActions.style.cssText = `display:none;`;
 chatArea.append(welcomeMsg, suggestedActions);
 
 /* Input row (rounded bar + mic inside + floating FAB send) */
-const inputArea = document.createElement('div');
+inputArea = document.createElement('div');
 inputArea.style.cssText = `
 position: relative;
 background: transparent;
@@ -492,7 +481,7 @@ padding: 12px 22px 22px 22px;
 border-top: 0;
 display: flex; flex-direction: column; gap: 8px;
 `;
-const input = document.createElement('input');
+input = document.createElement('input');
 input.type='text';
 input.placeholder='Ask me anything...';
 input.style.cssText = `
@@ -507,7 +496,7 @@ box-shadow:
   inset 0 1px 0 rgba(255,255,255,.1),
   0 12px 28px rgba(0,0,0,.3);
 `;
-const micButton = document.createElement('button');
+micButton = document.createElement('button');
 micButton.style.cssText = `
  position: absolute;
  left: 18px;
@@ -522,7 +511,7 @@ micButton.style.zIndex = '2';     // above the input
 micButton.onmouseover = ()=> micButton.style.opacity='1';
 micButton.onmouseout  = ()=> micButton.style.opacity='.9';
 
-const sendButton = document.createElement('button');
+sendButton = document.createElement('button');
 sendButton.classList.add('ciq-fab')
 sendButton.style.cssText = `
  position: absolute;
@@ -776,7 +765,7 @@ inputRow.append(input, micButton, sendButton);
 inputArea.append(inputRow, disclaimer);
 
 /* Create initial icon */
-const chatIcon = document.createElement('div');
+chatIcon = document.createElement('div');
 chatIcon.style.cssText = `
 width: 40px; height: 40px; border-radius: 50%;
 background: var(--ciq-blue); color:#fff; font-weight:700; font-size:18px;
@@ -787,7 +776,7 @@ cursor: grab;
 chatIcon.innerHTML = getIconSVG('chat');
 
 /* Create full chat interface (initially hidden) */
-const chatInterface = document.createElement('div');
+chatInterface = document.createElement('div');
 chatInterface.style.cssText = `
 width: 420px; height: 650px;
 display: none; flex-direction: column; overflow: hidden;
@@ -893,6 +882,7 @@ chatIcon.addEventListener('click', toggleChat);
 ROOT.append(chatIcon);
 chatInterface.append(header, chatArea, inputArea);
 ROOT.append(chatInterface);
+} // end buildUI
 
 /* ===== utility functions ===== */
 function cleanResponse(response) {
@@ -1818,9 +1808,28 @@ try{
 }
 }
 
-/* events (unchanged) */
-input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && input.value.trim()) sendMessage(input.value.trim()); });
-sendButton.addEventListener('click', ()=>{ if(input.value.trim()) sendMessage(input.value.trim()); });
-micButton.addEventListener('click', ()=> console.log('Voice input clicked'));
+  /* events (unchanged – wired up after UI build) */
+  function attachEvents() {
+    if (!input || !sendButton || !micButton) return;
+    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && input.value.trim()) sendMessage(input.value.trim()); });
+    sendButton.addEventListener('click', ()=>{ if(input.value.trim()) sendMessage(input.value.trim()); });
+    micButton.addEventListener('click', ()=> console.log('Voice input clicked'));
+  }
+
+  // Fetch custom styling, then build the UI once styling is ready
+  fetchCustomStyling()
+    .then(styling => {
+      customStyling = styling;
+      applyCustomStyling();
+      buildUI();
+      attachEvents();
+    })
+    .catch(err => {
+      console.warn('[contentIQ widget] Using default styling due to fetch error:', err);
+      customStyling = defaultStyling;
+      applyCustomStyling();
+      buildUI();
+      attachEvents();
+    });
 
 })(); // End of immediate loading function
