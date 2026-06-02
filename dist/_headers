@@ -1,0 +1,12 @@
+/sso_callback.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/embed.html
+  Content-Security-Policy: frame-ancestors *
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/loader.js
+  Cache-Control: public, max-age=3600
+
+/widget.js
+  Cache-Control: public, max-age=3600
