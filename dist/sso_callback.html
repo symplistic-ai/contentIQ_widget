@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>symplistic.contentIQ | Widget sign-in</title>
+  <style>
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f9fafb;
+      color: #111827;
+    }
+    .box {
+      max-width: 420px;
+      margin: 48px auto;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    .error {
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 16px;
+      font-size: 14px;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #8c52ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 16px auto 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1 style="font-size: 18px; margin: 0 0 8px;">Completing sign in...</h1>
+    <p style="font-size: 14px; color: #6b7280; margin: 0;">You can close this window when it finishes.</p>
+    <div class="spinner" id="spinner"></div>
+    <div class="error" id="error" style="display: none;"></div>
+  </div>
+
+  <script>
+    function decodeStatePayload(state) {
+      const payload = String(state || '').split('.')[0];
+      if (!payload) return {};
+      const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4);
+      const json = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+      return JSON.parse(json);
+    }
+
+    function postToOpener(payload, targetOrigin) {
+      if (window.opener && !window.opener.closed && targetOrigin) {
+        window.opener.postMessage(payload, targetOrigin);
+      }
+    }
+
+    async function completeRedirectInFrame(agentId, code, state) {
+      const backend = sessionStorage.getItem('contentiq_widget_sso_backend') || '';
+      const verifier =
+        sessionStorage.getItem('contentiq_widget_sso_code_verifier_' + agentId) || '';
+      const returnUrl =
+        sessionStorage.getItem('contentiq_widget_sso_embed_return') ||
+        (window.location.origin + '/embed.html');
+      if (!backend || !verifier) {
+        throw new Error('Missing SSO session data. Please try signing in again.');
+      }
+      const callbackUrl = new URL(backend.replace(/\/$/, '') + '/api/widget/sso/callback');
+      callbackUrl.searchParams.set('agent_id', agentId);
+      const response = await fetch(callbackUrl.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          agent_id: agentId,
+          code,
+          state,
+          code_verifier: verifier,
+        }),
+      });
+      const payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        throw new Error(payload.error || 'Sign-in failed (' + response.status + ')');
+      }
+      sessionStorage.removeItem('contentiq_widget_sso_redirect_pending');
+      sessionStorage.removeItem('contentiq_widget_sso_backend');
+      sessionStorage.removeItem('contentiq_widget_sso_code_verifier_' + agentId);
+      sessionStorage.removeItem('contentiq_widget_sso_embed_return');
+      sessionStorage.setItem('contentiq_widget_session_established_' + agentId, '1');
+      window.location.replace(returnUrl);
+    }
+
+    async function run() {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const state = params.get('state');
+      const error = params.get('error');
+      const errorDescription = params.get('error_description');
+      let stateData = {};
+      try {
+        stateData = decodeStatePayload(state);
+      } catch (e) {
+        stateData = {};
+      }
+      const agentId = stateData.agent_id || sessionStorage.getItem('contentiq_widget_sso_agent_id');
+      const openerOrigin = stateData.opener_origin;
+
+      if (error) {
+        const message = errorDescription || error;
+        document.getElementById('spinner').style.display = 'none';
+        const errEl = document.getElementById('error');
+        errEl.style.display = 'block';
+        errEl.textContent = message;
+        postToOpener({ type: 'contentiq_widget_sso_error', error: message }, openerOrigin);
+        return;
+      }
+
+      if (!code || !state || !agentId) {
+        const message = 'Missing authorization data. Please try signing in again from the widget.';
+        document.getElementById('spinner').style.display = 'none';
+        const errEl = document.getElementById('error');
+        errEl.style.display = 'block';
+        errEl.textContent = message;
+        postToOpener({ type: 'contentiq_widget_sso_error', error: message }, openerOrigin);
+        return;
+      }
+
+      if (!window.opener && sessionStorage.getItem('contentiq_widget_sso_redirect_pending') === '1') {
+        try {
+          await completeRedirectInFrame(agentId, code, state);
+        } catch (e) {
+          document.getElementById('spinner').style.display = 'none';
+          const errEl = document.getElementById('error');
+          errEl.style.display = 'block';
+          errEl.textContent = e.message || 'Sign-in failed';
+        }
+        return;
+      }
+
+      if (!openerOrigin) {
+        const message = 'Missing authorization data. Please try signing in again from the widget.';
+        document.getElementById('spinner').style.display = 'none';
+        const errEl = document.getElementById('error');
+        errEl.style.display = 'block';
+        errEl.textContent = message;
+        return;
+      }
+
+      postToOpener({
+        type: 'contentiq_widget_sso_code',
+        agent_id: agentId,
+        code,
+        state,
+      }, openerOrigin);
+    }
+
+    run();
+  </script>
+</body>
+</html>

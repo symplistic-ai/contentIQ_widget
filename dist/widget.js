@@ -4,6 +4,11 @@
  * talks to the backend with signed site-token + replay-safe ts|sig.
  * 
  * Version: 2.1.0 - Custom styling integration with POST auth
+ *
+ * TODO (RBAC): Add support for authenticated users and access_roles enforcement.
+ *   - Optional user auth (SSO, signed tokens, parent-page auth)
+ *   - Pass user identity/roles to chat API; backend enforces access_roles
+ *   - See Deployments/RBAC_DEPLOYMENTS_REQUIREMENTS.md
  * 
  * Session Configuration:
  * To customize session expiry time, set window.contentIQConfig before loading the widget:
@@ -14,54 +19,114 @@
 
 // Load widget immediately - no async, no delays
 (function() {
-  // Capture script tag and dataset values immediately
-  const SCRIPT_TAG = document.currentScript;
-  if (!SCRIPT_TAG) {
+  const IFRAME_MODE = window.contentIQEmbedMode === 'iframe';
+  let embedParentOrigin = null;
+
+  function runWidgetBody(embedConfig) {
+  const SCRIPT_TAG = IFRAME_MODE
+    ? null
+    : (document.currentScript || document.querySelector('script[src*="widget.js"]'));
+  if (!IFRAME_MODE && !SCRIPT_TAG) {
     console.error('[contentIQ widget] Script tag not found');
     return;
   }
-  const SITE_TOKEN = SCRIPT_TAG.dataset.token;
-  
-  // Locate elements & dataset values supplied by embed snippet
+
   const ROOT = document.querySelector('.contentiq_symplisticai_chat');
   if (!ROOT) {
     console.error('[contentIQ widget] Root DIV not found');
     return;
   }
-  // DOM element references – assigned when we build the UI
+
+  const SITE_TOKEN = IFRAME_MODE ? embedConfig.token : SCRIPT_TAG.dataset.token;
   let header, resizeButton, chatArea, inputArea, input, micButton, sendButton, chatIcon, chatInterface;
-  const AGENT_ID   = ROOT.dataset.agent;
-  const BACKEND    = SCRIPT_TAG.dataset.backend || 'http://localhost:1234';
+  let ssoGateEl = null;
+  let revealChatPanel = null;
+  let collapseToBubble = null;
+  let isOpen = false;
+  let isExpanded = false;
+  const MOBILE_BREAKPOINT = 640;
+  const AGENT_ID = IFRAME_MODE ? embedConfig.agent_id : ROOT.dataset.agent;
+  const BACKEND = IFRAME_MODE
+    ? (embedConfig.backend || 'http://localhost:1234')
+    : (SCRIPT_TAG.dataset.backend || 'http://localhost:1234');
+  const SSO_REQUIRED_ATTR = IFRAME_MODE
+    ? (embedConfig.sso === true || embedConfig.sso === 'true')
+    : (SCRIPT_TAG.dataset.sso === 'true');
+  if (IFRAME_MODE && embedConfig.agent_id) {
+    ROOT.dataset.agent = embedConfig.agent_id;
+  }
+  embedParentOrigin = IFRAME_MODE ? (embedConfig.parent_origin || embedParentOrigin) : null;
+
+  const WIDGET_SESSION_MARKER_KEY = `contentiq_widget_session_established_${AGENT_ID}`;
+  let ssoRequired = SSO_REQUIRED_ATTR;
+  let widgetSessionEstablished = sessionStorage.getItem(WIDGET_SESSION_MARKER_KEY) === '1';
+  let widgetSsoCodeVerifier = '';
+
+  function persistWidgetSession() {
+    widgetSessionEstablished = true;
+    sessionStorage.setItem(WIDGET_SESSION_MARKER_KEY, '1');
+  }
+
+  function isWidgetSsoTokenValid() {
+    return widgetSessionEstablished;
+  }
+
+  function widgetApiHeaders(extra) {
+    return Object.assign({}, extra || {});
+  }
+
+  function notifyParentResize(open) {
+    if (!IFRAME_MODE || window.parent === window) return;
+    const mobile = window.innerWidth <= MOBILE_BREAKPOINT;
+    let width;
+    let height;
+    if (open) {
+      if (mobile) {
+        width = '100vw';
+        height = '100vh';
+      } else {
+        const baseWidth = isExpanded ? 600 : 420;
+        const verticalMargin = 120;
+        const maxAllowedHeight = Math.max(360, window.innerHeight - verticalMargin);
+        const baseHeight = isExpanded ? 800 : 650;
+        width = baseWidth;
+        height = Math.min(baseHeight, maxAllowedHeight);
+      }
+    } else {
+      const bubble = 72;
+      width = bubble;
+      height = bubble;
+    }
+    const target = embedParentOrigin || '*';
+    window.parent.postMessage({ type: 'contentiq_resize', width, height, open: !!open }, target);
+  }
 
   // Session management for conversation continuity
   let sessionId = null;
-  
+
   // Thread timeout configuration (5 minutes)
   const THREAD_TIMEOUT_MINUTES = window.contentIQConfig?.threadTimeoutMinutes || 5; // Default 5 minutes
   const THREAD_TIMEOUT_MS = THREAD_TIMEOUT_MINUTES * 60 * 1000;
-  
-  console.log(`[contentIQ widget] Thread timeout set to ${THREAD_TIMEOUT_MINUTES} minutes`);
-  
+
   // Try to get existing session ID from localStorage
   const storageKey = `contentiq_session_${AGENT_ID}`;
   const sessionData = localStorage.getItem(storageKey);
-  
+
   // Check if session exists
   if (sessionData) {
       try {
           const parsed = JSON.parse(sessionData);
           sessionId = parsed.sessionId;
-          console.log('[contentIQ widget] Using existing session');
-          
+
           // Update last activity
           parsed.lastActivity = Date.now();
           localStorage.setItem(storageKey, JSON.stringify(parsed));
       } catch (e) {
-          console.log('[contentIQ widget] Invalid session data, creating new one');
+
           localStorage.removeItem(storageKey);
       }
   }
-  
+
   // If no valid session exists, create a new unique one
   if (!sessionId) {
       // Generate a clean, unique session ID for this user
@@ -69,7 +134,7 @@
       const random = Math.random().toString(36).substring(2, 15);
       const uniqueId = `${timestamp}_${random}`;
       sessionId = `session_${uniqueId}`;
-      
+
       // Store session data with timestamp
       const sessionData = {
           sessionId: sessionId,
@@ -77,9 +142,9 @@
           created: Date.now()
       };
       localStorage.setItem(storageKey, JSON.stringify(sessionData));
-      console.log('[contentIQ widget] Created new session');
+
   }
-  
+
   // Function to update session activity
   function updateSessionActivity() {
       const sessionData = localStorage.getItem(storageKey);
@@ -89,11 +154,11 @@
               parsed.lastActivity = Date.now();
               localStorage.setItem(storageKey, JSON.stringify(parsed));
           } catch (e) {
-              console.warn('[contentIQ widget] Failed to update session activity');
+
           }
       }
   }
-  
+
   // Function to get session info for debugging
   function getSessionInfo() {
       const sessionData = localStorage.getItem(storageKey);
@@ -105,7 +170,7 @@
               const timeSinceActivity = now - lastActivity;
               const hoursSinceActivity = Math.floor(timeSinceActivity / (1000 * 60 * 60));
               const minutesSinceActivity = Math.floor((timeSinceActivity % (1000 * 60 * 60)) / (1000 * 60));
-              
+
               return {
                   sessionId: parsed.sessionId,
                   lastActivity: new Date(lastActivity).toISOString(),
@@ -119,7 +184,7 @@
       }
       return { error: 'No session data' };
   }
-  
+
   // Function to check if thread has timed out (5 minutes of inactivity)
   function checkThreadTimeout() {
       const sessionData = localStorage.getItem(storageKey);
@@ -128,46 +193,47 @@
               const parsed = JSON.parse(sessionData);
               const lastActivity = parsed.lastActivity || 0;
               const now = Date.now();
-              
+
               // Check if thread has timed out (5 minutes)
               if (now - lastActivity >= THREAD_TIMEOUT_MS) {
-                  console.log('[contentIQ widget] Thread timed out, will create new session');
+
                   return true;
               }
           } catch (e) {
-              console.warn('[contentIQ widget] Error checking thread timeout:', e);
+
           }
       }
       return false;
   }
-  
+
   // Function to manually expire session (for testing or user logout)
   function expireSession() {
       localStorage.removeItem(storageKey);
-      console.log('[contentIQ widget] Session manually expired');
+
       // Reload page or recreate session as needed
       location.reload();
   }
-  
+
   // Make expireSession available globally for testing
   window.contentIQExpireSession = expireSession;
-  
+
   // Make thread timeout check available globally for testing
   window.contentIQCheckThreadTimeout = checkThreadTimeout;
-  
+
   // Function to detect and clean up old session formats
-  function isOldSessionFormat(sessionId) {
-    return sessionId && sessionId.includes('Mozilla') || sessionId.includes('Chrome') || sessionId.includes('Safari');
+  function isOldSessionFormat(id) {
+    if (id == null || typeof id !== 'string') return false;
+    return id.includes('Mozilla') || id.includes('Chrome') || id.includes('Safari');
   }
-  
+
   // Clean up any old session formats
   if (sessionId && isOldSessionFormat(sessionId)) {
-    console.log('[contentIQ widget] Detected old session format, cleaning up');
+
     localStorage.removeItem(storageKey);
     sessionId = null;
     // This will trigger creation of a new clean session ID
   }
-  
+
   // Log session info for debugging
   // Session info logging removed for privacy
 
@@ -184,27 +250,375 @@
     return hex(new Uint8Array(sig));
   }
 
+  function normalizedParentOrigin() {
+    if (!IFRAME_MODE || !embedParentOrigin) return null;
+    try {
+      return new URL(embedParentOrigin).origin;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function buildAuth() {
     const ts  = Math.floor(Date.now() / 1000).toString();
-    const sig = await hmacSHA256(SITE_TOKEN, `${ts}|${AGENT_ID}`);
-    return { agent_id: AGENT_ID, token: SITE_TOKEN, ts, sig };
+    const parentOrigin = normalizedParentOrigin();
+    const message = parentOrigin ? `${ts}|${AGENT_ID}|${parentOrigin}` : `${ts}|${AGENT_ID}`;
+    const sig = await hmacSHA256(SITE_TOKEN, message);
+    const auth = { agent_id: AGENT_ID, token: SITE_TOKEN, ts, sig };
+    if (parentOrigin) auth.parent_origin = parentOrigin;
+    return auth;
   }
 
   /* ───── background validation (non-blocking) ────────────────── */
-  (async () => {
-    try {
-      const { ts, sig } = await buildAuth();
-      const url = new URL(BACKEND + '/api/deploy/validateToken');
-      url.searchParams.set('agent_id', AGENT_ID);
-      url.searchParams.set('token', SITE_TOKEN);
-      url.searchParams.set('ts', ts);
-      url.searchParams.set('sig', sig);
-      const ok = await fetch(url).then(r => r.ok);
-      if (!ok) console.warn('[contentIQ widget] Token validation failed');
-    } catch (err) {
-      console.warn('[contentIQ widget] Validation error', err);
+  async function detectSsoRequirement() {
+    if (SSO_REQUIRED_ATTR) {
+      ssoRequired = true;
+      return;
     }
-  })();
+    try {
+      const auth = await buildAuth();
+      const url = new URL(BACKEND + '/api/deploy/validateToken');
+      url.searchParams.set('agent_id', auth.agent_id);
+      url.searchParams.set('token', auth.token);
+      url.searchParams.set('ts', auth.ts);
+      url.searchParams.set('sig', auth.sig);
+      if (auth.parent_origin) {
+        url.searchParams.set('parent_origin', auth.parent_origin);
+      }
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data && data.sso_enabled) {
+          ssoRequired = true;
+        }
+      }
+    } catch (err) {
+      console.error('[contentIQ widget] SSO detection failed', { error: err });
+    }
+  }
+
+  function generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return btoa(String.fromCharCode.apply(null, array))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+  }
+
+  async function generateCodeChallenge(verifier) {
+    const data = encoder.encode(verifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(digest)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+  }
+
+  function clearWidgetSsoSession() {
+    widgetSessionEstablished = false;
+    widgetSsoCodeVerifier = '';
+    sessionStorage.removeItem(WIDGET_SESSION_MARKER_KEY);
+    sessionStorage.removeItem(`contentiq_widget_sso_code_verifier_${AGENT_ID}`);
+    sessionStorage.removeItem(`contentiq_widget_sso_agent_id_${AGENT_ID}`);
+  }
+
+  function revokeWidgetSsoSession() {
+    buildAuth()
+      .then((auth) => fetch(`${BACKEND}/api/widget/sso/logout?agent_id=${encodeURIComponent(AGENT_ID)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(auth),
+      }))
+      .catch(() => {})
+      .finally(() => {
+        clearWidgetSsoSession();
+      });
+  }
+
+  function hideSsoGate() {
+    if (ssoGateEl) {
+      ssoGateEl.remove();
+      ssoGateEl = null;
+    }
+    if (header) header.style.display = '';
+    if (chatArea) chatArea.style.display = '';
+    if (inputArea) inputArea.style.display = '';
+  }
+
+  function dismissSsoGateToBubble() {
+    hideSsoGate();
+    isOpen = false;
+    if (collapseToBubble) {
+      collapseToBubble();
+    }
+  }
+
+  function applySsoGateLayout() {
+    if (!ROOT || !chatInterface) return;
+    const mobile = window.innerWidth <= MOBILE_BREAKPOINT;
+    if (IFRAME_MODE) {
+      ROOT.style.flexDirection = 'column';
+      ROOT.style.overflow = 'hidden';
+      ROOT.style.width = '100%';
+      ROOT.style.height = '100%';
+      ROOT.style.bottom = '0';
+      ROOT.style.right = '0';
+      notifyParentResize(true);
+      return;
+    }
+    ROOT.style.flexDirection = 'column';
+    ROOT.style.overflow = 'hidden';
+    if (mobile) {
+      ROOT.style.right = '0';
+      ROOT.style.bottom = '0';
+      ROOT.style.width = '100vw';
+      ROOT.style.height = 'auto';
+      ROOT.style.borderRadius = '0';
+    } else {
+      ROOT.style.right = '24px';
+      ROOT.style.bottom = '24px';
+      ROOT.style.width = '320px';
+      ROOT.style.maxWidth = 'calc(100vw - 32px)';
+      ROOT.style.height = 'auto';
+      ROOT.style.borderRadius = '16px';
+    }
+    chatInterface.style.width = '100%';
+    chatInterface.style.height = 'auto';
+    chatInterface.style.display = 'flex';
+    chatInterface.style.flexDirection = 'column';
+    chatInterface.style.background = '#fff';
+    chatInterface.style.border = '1px solid #E5E8F0';
+    chatInterface.style.borderRadius = mobile ? '0' : '16px';
+    chatInterface.style.boxShadow = '0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06)';
+  }
+
+  function showSsoGate(onSignIn, onDismiss) {
+    hideSsoGate();
+
+    ssoGateEl = document.createElement('div');
+    ssoGateEl.className = 'contentiq-sso-gate';
+    ssoGateEl.style.cssText = 'position:relative;padding:20px;text-align:center;color:#111827;';
+    ssoGateEl.innerHTML = `
+      <button type="button" id="contentiqSsoGateClose" aria-label="Close" style="position:absolute;top:10px;right:10px;width:28px;height:28px;border:none;border-radius:50%;background:transparent;color:#6b7280;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">×</button>
+      <div style="font-size:16px;font-weight:600;margin-bottom:8px;">Sign in required</div>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 16px;">Use your Microsoft work account to access this assistant.</p>
+      <button type="button" id="contentiqSsoSignInBtn" style="background:#246BFD;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer;">Sign in with Microsoft</button>
+      <p id="contentiqSsoGateError" style="display:none;color:#b91c1c;font-size:13px;margin-top:12px;"></p>
+    `;
+
+    const btn = ssoGateEl.querySelector('#contentiqSsoSignInBtn');
+    const errEl = ssoGateEl.querySelector('#contentiqSsoGateError');
+    const closeBtn = ssoGateEl.querySelector('#contentiqSsoGateClose');
+    if (closeBtn && onDismiss) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onDismiss();
+      });
+      closeBtn.onmouseover = () => { closeBtn.style.background = '#f3f4f6'; };
+      closeBtn.onmouseout = () => { closeBtn.style.background = 'transparent'; };
+    }
+    const wireSignIn = () => {
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        const defaultLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Signing in...';
+        errEl.style.display = 'none';
+        try {
+          await onSignIn();
+          btn.textContent = defaultLabel;
+        } catch (e) {
+          errEl.textContent = e.message || 'Sign-in failed';
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = defaultLabel;
+        }
+      });
+    };
+
+    if (chatInterface && chatIcon) {
+      isOpen = true;
+      applySsoGateLayout();
+      chatIcon.style.display = 'none';
+      header.style.display = 'none';
+      chatArea.style.display = 'none';
+      inputArea.style.display = 'none';
+      chatInterface.appendChild(ssoGateEl);
+      wireSignIn();
+      return;
+    }
+
+    ROOT.innerHTML = '';
+    const ssoPosition = IFRAME_MODE ? 'position:absolute;' : 'position:fixed;';
+    ROOT.style.cssText = `
+      ${ssoPosition}
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      width: 320px;
+      max-width: calc(100vw - 32px);
+      box-sizing: border-box;
+      background: #fff;
+      border: 1px solid #E5E8F0;
+      border-radius: 16px;
+      box-shadow: 0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06);
+      font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    `;
+    ROOT.appendChild(ssoGateEl);
+    wireSignIn();
+    if (IFRAME_MODE) notifyParentResize(true);
+  }
+
+  async function completeWidgetSsoCallback(code, state) {
+    const callbackUrl = new URL(`${BACKEND}/api/widget/sso/callback`);
+    callbackUrl.searchParams.set('agent_id', AGENT_ID);
+    const auth = await buildAuth();
+    const response = await fetch(callbackUrl.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        ...auth,
+        code,
+        state,
+        code_verifier: widgetSsoCodeVerifier || undefined,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Sign-in failed (${response.status})`);
+    }
+    widgetSsoCodeVerifier = '';
+    persistWidgetSession();
+  }
+
+  async function startWidgetSsoRedirect(authUrl, codeVerifier) {
+    sessionStorage.setItem(`contentiq_widget_sso_code_verifier_${AGENT_ID}`, codeVerifier);
+    sessionStorage.setItem(`contentiq_widget_sso_agent_id_${AGENT_ID}`, AGENT_ID);
+    sessionStorage.setItem('contentiq_widget_sso_backend', BACKEND);
+    if (IFRAME_MODE) {
+      sessionStorage.setItem(
+        'contentiq_widget_sso_embed_return',
+        window.location.origin + '/embed.html'
+      );
+    }
+    sessionStorage.setItem('contentiq_widget_sso_redirect_pending', '1');
+    window.location.assign(authUrl);
+  }
+
+  async function startWidgetSsoLogin() {
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    const auth = await buildAuth();
+    const configUrl = new URL(`${BACKEND}/api/widget/sso/config`);
+    configUrl.searchParams.set('agent_id', auth.agent_id);
+    configUrl.searchParams.set('token', auth.token);
+    configUrl.searchParams.set('ts', auth.ts);
+    configUrl.searchParams.set('sig', auth.sig);
+    if (auth.parent_origin) {
+      configUrl.searchParams.set('parent_origin', auth.parent_origin);
+    }
+    configUrl.searchParams.set('code_challenge', codeChallenge);
+    configUrl.searchParams.set('code_challenge_method', 'S256');
+    if (IFRAME_MODE) {
+      configUrl.searchParams.set('embed_mode', 'iframe');
+    }
+    const configRes = await fetch(configUrl.toString(), { credentials: 'include' });
+    const config = await configRes.json().catch(() => ({}));
+    if (!configRes.ok) {
+      throw new Error(config.error || 'SSO is not available for this widget');
+    }
+
+    widgetSsoCodeVerifier = codeVerifier;
+
+    const expectedMessageOrigin = config.callback_origin || new URL(config.redirect_uri).origin;
+    let authUrl = config.authorization_url;
+    if (!authUrl.includes('code_challenge=')) {
+      const separator = authUrl.includes('?') ? '&' : '?';
+      authUrl = `${authUrl}${separator}code_challenge=${encodeURIComponent(codeChallenge)}&code_challenge_method=S256`;
+    }
+
+    return new Promise((resolve, reject) => {
+      const popup = window.open(authUrl, 'contentiq_widget_sso', 'width=520,height=720');
+      if (!popup) {
+        startWidgetSsoRedirect(authUrl, codeVerifier).catch(reject);
+        return;
+      }
+
+      let settled = false;
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(timer);
+        window.removeEventListener('message', onMessage);
+        try {
+          if (popup && !popup.closed) popup.close();
+        } catch (e) {}
+        fn();
+      };
+
+      const onMessage = async (event) => {
+        if (event.origin !== expectedMessageOrigin) return;
+        const data = event.data || {};
+        if (data.type === 'contentiq_widget_sso_code' && data.agent_id === AGENT_ID && data.code && data.state) {
+          try {
+            await completeWidgetSsoCallback(data.code, data.state);
+            finish(resolve);
+          } catch (err) {
+            finish(() => reject(err));
+          }
+        } else if (data.type === 'contentiq_widget_sso_success' && data.agent_id === AGENT_ID) {
+          persistWidgetSession();
+          finish(resolve);
+        } else if (data.type === 'contentiq_widget_sso_error') {
+          finish(() => reject(new Error(data.error || 'Sign-in failed')));
+        }
+      };
+
+      window.addEventListener('message', onMessage);
+      const timer = setInterval(() => {
+        if (popup.closed) {
+          if (isWidgetSsoTokenValid()) {
+            finish(resolve);
+          } else {
+            finish(() => reject(new Error('Sign-in window was closed before completing authentication')));
+          }
+        }
+      }, 500);
+    });
+  }
+
+  async function ensureWidgetSsoSession({ requireInteractive = false } = {}) {
+    await detectSsoRequirement();
+    if (!ssoRequired) {
+      return true;
+    }
+    if (isWidgetSsoTokenValid()) {
+      return true;
+    }
+    if (!requireInteractive) {
+      return false;
+    }
+    const signedIn = await new Promise((resolve) => {
+      showSsoGate(
+        async () => {
+          await startWidgetSsoLogin();
+          hideSsoGate();
+          if (revealChatPanel) {
+            revealChatPanel();
+          }
+          resolve(true);
+        },
+        () => {
+          dismissSsoGateToBubble();
+          resolve(false);
+        }
+      );
+    });
+    return signedIn;
+  }
 
   /* ───── fetch and apply custom styling ────────────────── */
   // Default styling values extracted from actual widget CSS variables and styling
@@ -223,54 +637,64 @@
     agentTextColor: "#ffffff",
     userBubbleColor: "#246BFD", // var(--ciq-blue)
     userCircleColor: "#246BFD", // var(--ciq-blue)
+    iconSizePercent: 40,
     userTextColor: "#ffffff",
     inputBackgroundColor: "linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)",
     inputTextColor: "#ffffff",
     // Additional styling from ROOT.style.cssText
     rootBorder: "#ECEEF5",
     rootBoxShadow: "0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06)",
-    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial"
+    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial",
+    launcherIcon: ""
   };
 
   let customStyling = { ...defaultStyling };
 
+  // Icon size scale factor (24–72, default 40 → scale 1)
+  function getIconScale() {
+    const pct = customStyling.iconSizePercent;
+    if (pct == null || pct === undefined) return 1;
+    const normalized = Math.min(72, Math.max(24, parseInt(pct, 10) || 40));
+    return normalized / 40;
+  }
+
   // Function to fetch custom styling
   async function fetchCustomStyling() {
     try {
-      console.log('[contentIQ widget] Fetching custom styling with GET method...');
-      const { ts, sig } = await buildAuth();
+
+      const auth = await buildAuth();
       const url = new URL(BACKEND + '/api/deploy/getEmbedStyling');
-      url.searchParams.set('agent_id', AGENT_ID);
-      url.searchParams.set('token', SITE_TOKEN);
-      url.searchParams.set('ts', ts);
-      url.searchParams.set('sig', sig);
-      
+      url.searchParams.set('agent_id', auth.agent_id);
+      url.searchParams.set('token', auth.token);
+      url.searchParams.set('ts', auth.ts);
+      url.searchParams.set('sig', auth.sig);
+      if (auth.parent_origin) {
+        url.searchParams.set('parent_origin', auth.parent_origin);
+      }
+
       const res = await fetch(url);
-      
+
       if (res.ok) {
         const data = await res.json();
-        console.log('[contentIQ widget] Fetched custom styling response:', data);
-        
+
         // Handle nested response structure
         if (data.success && data.styling) {
           const styling = data.styling;
-          console.log('[contentIQ widget] Using custom styling:', styling);
+
           return { ...defaultStyling, ...styling }; // Merge with defaults
         } else {
-          console.log('[contentIQ widget] Invalid response structure, using defaults');
+
           return defaultStyling;
         }
       } else {
-        console.log('[contentIQ widget] No custom styling found, using defaults');
+
         return defaultStyling;
       }
     } catch (err) {
-      console.warn('[contentIQ widget] Error fetching custom styling:', err);
+
       return defaultStyling;
     }
   }
-
-
 
   /* ============ ============ ============ ============ 
       CSS & JS FOR STYLING THE WIDGET
@@ -317,16 +741,104 @@
   border-bottom-color: #246BFD;
 `;
 
-
   /* ====== CSS & JS FOR STYLING THE WIDGET ====== */
+  function normalizeBrandNameValue(s) {
+    let t = (s != null ? String(s) : '').trim().replace(/^\uFEFF/, '');
+    t = t.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+      t = t.slice(1, -1).trim();
+    }
+    return t;
+  }
+
+  /** URL, data/blob URL, or raw base64 (no prefix) saved in brandName — returns src for <img> or null. */
+  function brandNameToImageSrc(s) {
+    const t = normalizeBrandNameValue(s);
+    if (!t) return null;
+    if (/^https?:\/\//i.test(t)) return t;
+    if (/^data:image\//i.test(t) || /^blob:/i.test(t)) return t;
+    const compact = t.replace(/\s+/g, '');
+    if (compact.length < 80) return null;
+    if (!/^[A-Za-z0-9+/]+=*$/.test(compact)) return null;
+    if (compact.startsWith('iVBORw0KGgo')) return 'data:image/png;base64,' + compact;
+    if (compact.startsWith('/9j/')) return 'data:image/jpeg;base64,' + compact;
+    if (compact.startsWith('R0lGOD')) return 'data:image/gif;base64,' + compact;
+    if (compact.startsWith('UklGR')) return 'data:image/webp;base64,' + compact;
+    if (compact.startsWith('PHN2Zy')) return 'data:image/svg+xml;base64,' + compact;
+    return 'data:image/png;base64,' + compact;
+  }
+
+  function isBrandNameImageUrl(s) {
+    return brandNameToImageSrc(s) !== null;
+  }
+
+  /** Header title text: brandName unless it is only used as a legacy image payload. */
+  function headerBrandTextForDisplay() {
+    const fallback = 'symplistic.contentIQ';
+    const raw = customStyling.brandName;
+    if (raw != null && isBrandNameImageUrl(raw)) return fallback;
+    const trimmed = normalizeBrandNameValue(raw);
+    return trimmed || fallback;
+  }
+
+  /** Header slot image comes from launcherIcon only so brandName stays textual/independent. */
+  function setHeaderBrandTitle(titleEl, headerColor) {
+    titleEl.replaceChildren();
+    const fallbackText = headerBrandTextForDisplay();
+    const imgSrc = brandNameToImageSrc(customStyling.launcherIcon);
+    if (imgSrc) {
+      const img = document.createElement('img');
+      img.src = imgSrc;
+      img.alt = 'Brand';
+      img.style.cssText = 'max-height:32px;width:auto;object-fit:contain;display:block;';
+      img.onerror = () => {
+        img.remove();
+        const span = document.createElement('span');
+        span.style.color = headerColor;
+        span.textContent = fallbackText;
+        titleEl.appendChild(span);
+      };
+      titleEl.appendChild(img);
+    } else {
+      const span = document.createElement('span');
+      span.style.color = headerColor;
+      span.textContent = fallbackText;
+      titleEl.appendChild(span);
+    }
+  }
+
+  /** Image for floating launcher / closed FAB only (not message avatars). */
+  function widgetIconImageSrc() {
+    return brandNameToImageSrc(customStyling.launcherIcon) || brandNameToImageSrc(customStyling.brandName);
+  }
+
+  /** Bot message avatars: initial letter only so header logo/icon stays independent. */
+  function setAgentAvatarLetterOrBrandImage(av) {
+    av.style.overflow = '';
+    av.style.padding = '';
+    av.replaceChildren();
+    av.textContent = (customStyling.agentName || 'ContentIQ').charAt(0).toUpperCase();
+  }
+
   function buildUI() {
+  const iconScale = getIconScale();
+  const avatarBase = Math.round(40 * iconScale);
+  const avatarFontBase = Math.round(15 * iconScale);
+  const sendBtnBase = Math.round(64 * iconScale);
+  const shellRadius = '22px';
+  ROOT.innerHTML = '';
+  const rootPosition = IFRAME_MODE
+    ? 'position:absolute;bottom:0;right:0;'
+    : 'position:fixed;bottom:60px;right:24px;';
   ROOT.style.cssText = `
   --ciq-blue:#246BFD; --ciq-blue-dark:#0F56E0;
   --ink:#111827; --muted:#8E8E93; --border:#E5E8F0;
-  
-  position: fixed; bottom: 60px; right: 24px;
-  width: 64px; height: 64px;             /* Start as small icon */
-  display:flex; align-items:center; justify-content:center; z-index:9999;
+
+  ${rootPosition}
+  box-sizing: border-box;
+  width: ${sendBtnBase}px; height: ${sendBtnBase}px;
+  display:flex; align-items:center; justify-content:center;
+  ${IFRAME_MODE ? '' : 'z-index:9999;'}
   border-radius: 50%;
   border: none;
   background: transparent;
@@ -347,80 +859,89 @@ text-align:center;                       /* ensure text centers with logo */
 position: relative;
 `;
 
+/* Header chrome (close / resize) – visible on light and dark headers */
+const headerChromeColor = (() => {
+  const hc = (customStyling.headerColor || '').toLowerCase();
+  if (hc === '#fff' || hc === '#ffffff' || hc === 'white') {
+    return customStyling.textColor || '#111827';
+  }
+  return customStyling.headerColor || customStyling.textColor || '#111827';
+})();
+
 /* Close button */
 const closeButton = document.createElement('button');
+closeButton.type = 'button';
+closeButton.setAttribute('aria-label', 'Close chat');
 closeButton.style.cssText = `
 position: absolute;
-top: 18px;
-right: 22px;
-width: 24px;
-height: 24px;
+top: 14px;
+right: 14px;
+width: 28px;
+height: 28px;
 border: none;
 background: transparent;
 cursor: pointer;
 display: flex;
 align-items: center;
 justify-content: center;
-color: #ffffff;
-font-size: 18px;
+color: ${headerChromeColor};
+font-size: 20px;
+line-height: 1;
 font-weight: bold;
 border-radius: 50%;
 transition: background-color 0.2s ease;
+z-index: 2;
 `;
 closeButton.innerHTML = '×';
-closeButton.onmouseover = () => { closeButton.style.backgroundColor = 'rgba(0,0,0,0.1)'; };
+closeButton.onmouseover = () => { closeButton.style.backgroundColor = 'rgba(0,0,0,0.08)'; };
 closeButton.onmouseout = () => { closeButton.style.backgroundColor = 'transparent'; };
 closeButton.onclick = (e) => {
 e.stopPropagation();
-toggleChat();
+void toggleChat();
 };
 
 /* Resize button */
 resizeButton = document.createElement('button');
+resizeButton.type = 'button';
 resizeButton.style.cssText = `
 position: absolute;
-top: 18px;
-right: 50px;
-width: 24px;
-height: 24px;
+top: 14px;
+right: 46px;
+width: 28px;
+height: 28px;
 border: none;
 background: transparent;
 cursor: pointer;
 display: flex;
 align-items: center;
 justify-content: center;
-color: #ffffff;
+color: ${headerChromeColor};
 font-size: 16px;
 font-weight: bold;
 border-radius: 50%;
 transition: background-color 0.2s ease;
+z-index: 2;
 `;
 resizeButton.innerHTML = getIconSVG('expand');
 resizeButton.title = 'Make larger';
-resizeButton.onmouseover = () => { resizeButton.style.backgroundColor = 'rgba(0,0,0,0.1)'; };
+resizeButton.onmouseover = () => { resizeButton.style.backgroundColor = 'rgba(0,0,0,0.08)'; };
 resizeButton.onmouseout = () => { resizeButton.style.backgroundColor = 'transparent'; };
 resizeButton.onclick = (e) => {
 e.stopPropagation();
 toggleResize();
 };
-const logo = document.createElement('div');
-// logo.style.cssText = `
-//   width: 36px; height: 36px; border-radius: 50%;
-//   background: var(--ciq-blue); color:#fff; font-weight:700; font-size:14px;
-//   display:flex; align-items:center; justify-content:center; flex-shrink:0;
-//   box-shadow: 0 10px 22px rgba(36,107,253,.35); margin-top: 10px;
-// `;
-// logo.textContent = 'S';
 const title = document.createElement('div');
-title.innerHTML = `<span style="color:${customStyling.headerColor};">${customStyling.brandName}</span>`;
+title.dataset.ciqHeaderBrand = 'true';
+setHeaderBrandTitle(title, customStyling.headerColor);
 title.style.cssText = `
 font-weight: 800; font-size: 18px; letter-spacing:.2px; margin-top: 10px;
-margin-left: -18px;
+display:flex; align-items:center; justify-content:center;
+width: 100%;
 `;
 const timestamp = document.createElement('div');
 timestamp.style.cssText = `display:none;`; /* hide in header per screenshot */
 timestamp.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-header.append(logo, title, timestamp, resizeButton, closeButton);
+header.append(title, timestamp, resizeButton, closeButton);
 
 /* Scroll area */
 chatArea = document.createElement('div');
@@ -437,13 +958,14 @@ display:flex; align-items:flex-start; gap:12px;
 margin: 0 0 16px;                        /* increased spacing between messages */
 `;
 const botAvatar = document.createElement('div');
+botAvatar.dataset.ciqIconSize = 'avatar';
 botAvatar.style.cssText = `
-width: 40px; height: 40px; border-radius: 50%; flex-shrink:0;
-background: var(--ciq-blue); color:#fff; font-weight:700; font-size:15px;
+width: ${avatarBase}px; height: ${avatarBase}px; border-radius: 50%; flex-shrink:0;
+background: var(--ciq-blue); color:#fff; font-weight:700; font-size:${avatarFontBase}px;
 display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
 `;
-botAvatar.textContent = customStyling.agentName.charAt(0).toUpperCase();
+setAgentAvatarLetterOrBrandImage(botAvatar);
 
 const messageContent = document.createElement('div');
 messageContent.style.cssText = `flex:1;`;
@@ -460,7 +982,7 @@ messageBubble.style.cssText = `
 background: ${customStyling.agentBubbleColor};
 border: 1px solid #333333;
 color: ${customStyling.agentTextColor};
-padding: 14px 16px;
+padding: 14px 8px;
 border-radius: 20px;
 font-size: 15px; line-height: 1.45;
 width: 96%;
@@ -543,11 +1065,12 @@ micButton.onmouseover = ()=> micButton.style.opacity='1';
 micButton.onmouseout  = ()=> micButton.style.opacity='.9';
 
 sendButton = document.createElement('button');
+sendButton.dataset.ciqIconSize = 'send';
 sendButton.classList.add('ciq-fab')
 sendButton.style.cssText = `
  position: absolute;
  right: -2px; top: 50%; transform: translateY(-50%);
- width: 64px; height: 64px;
+ width: ${sendBtnBase}px; height: ${sendBtnBase}px;
  border: none; border-radius: 50%;
  background: #246BFD;
  display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -633,22 +1156,53 @@ _ciqStyle.textContent += `
 }
 .contentiq_symplisticai_chat .table-wrapper {
   overflow-x: auto;
+  overflow-y: hidden;
   margin: 8px 0;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  position: relative;
+}
+.contentiq_symplisticai_chat .table-wrapper.ciq-table-overflowing::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 56px;
+  height: 100%;
+  background: linear-gradient(to left, rgba(17, 24, 39, 0.85), rgba(17, 24, 39, 0));
+  pointer-events: none;
+}
+.contentiq_symplisticai_chat .table-wrapper.ciq-table-overflowing::after {
+  content: 'Scroll right for more ->';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: rgba(17, 24, 39, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 5px 7px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
 }
 .contentiq_symplisticai_chat table {
   border-collapse: collapse;
-  width: 250%;
-  max-width: 250%;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
   font-size: 13px;
   background: rgba(0,0,0,0.1);
   border-radius: 6px;
   overflow: hidden;
-  table-layout: fixed;
+  table-layout: auto;
 }
 .contentiq_symplisticai_chat th, .contentiq_symplisticai_chat td {
   border: 1px solid rgba(255,255,255,0.2);
@@ -659,7 +1213,13 @@ _ciqStyle.textContent += `
   hyphens: auto;
   vertical-align: top;
   white-space: normal;
-  min-width: fit-content;
+  min-width: 120px;
+}
+.contentiq_symplisticai_chat th:first-child,
+.contentiq_symplisticai_chat td:first-child {
+  width: 1%;
+  min-width: max-content;
+  white-space: nowrap;
 }
 .contentiq_symplisticai_chat th {
   background: rgba(36,107,253,0.2);
@@ -734,7 +1294,6 @@ _ciqStyle.textContent += `
 }
 `;
 
-
 document.head.appendChild(_ciqStyle);
 
 /* Disclaimer text */
@@ -767,38 +1326,74 @@ inputArea.append(inputRow, disclaimer);
 
 /* Create initial icon */
 chatIcon = document.createElement('div');
+chatIcon.dataset.ciqLauncher = 'true';
 chatIcon.style.cssText = `
-width: 64px; height: 64px; border-radius: 50%;
-background: var(--ciq-blue); color:#fff; font-weight:700; font-size:18px;
+width: ${sendBtnBase}px; height: ${sendBtnBase}px; border-radius: 50%;
+background: var(--ciq-blue); color:#fff; font-weight:700; font-size:${Math.round(18 * iconScale)}px;
 display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
 cursor: grab;
 `;
-chatIcon.innerHTML = getIconSVG('chat');
+function setClosedLauncherIcon(el) {
+  const imgSrc = widgetIconImageSrc();
+  el.replaceChildren();
+  if (imgSrc) {
+    el.style.overflow = 'hidden';
+    el.style.padding = '0';
+    const img = document.createElement('img');
+    img.src = imgSrc;
+    img.alt = '';
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center;display:block;border-radius:50%;';
+    img.onerror = () => {
+      el.style.overflow = '';
+      el.style.padding = '';
+      el.innerHTML = getIconSVG('chat');
+    };
+    el.appendChild(img);
+  } else {
+    el.style.overflow = '';
+    el.style.padding = '';
+    el.innerHTML = getIconSVG('chat');
+  }
+}
+setClosedLauncherIcon(chatIcon);
 
 /* Create full chat interface (initially hidden) */
 chatInterface = document.createElement('div');
+chatInterface.setAttribute('data-chat-interface', 'true');
+const shellBorderColor = window.previewMode ? '#94a3b8' : '#333333';
 chatInterface.style.cssText = `
+box-sizing: border-box;
 width: 420px; height: 650px;
 display: none; flex-direction: column; overflow: hidden;
-border-radius: 22px;
-border: 1px solid #333333;
+border-radius: ${shellRadius};
+border: 1px solid ${shellBorderColor};
 background: ${customStyling.backgroundColor};
-box-shadow: 0 22px 48px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2);
 position: relative;
 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 `;
 
 /* Resize & responsive functionality */
-let isExpanded = false;
 let isResizing = false;
-const MOBILE_BREAKPOINT = 640;
 
 function isMobileViewport() {
   return window.innerWidth <= MOBILE_BREAKPOINT;
 }
 
 function applyOpenLayout() {
+  const r = shellRadius;
+  if (IFRAME_MODE) {
+    ROOT.style.bottom = '0';
+    ROOT.style.right = '0';
+    ROOT.style.width = '100%';
+    ROOT.style.height = '100%';
+    ROOT.style.borderRadius = isMobileViewport() ? '0' : r;
+    chatInterface.style.width = '100%';
+    chatInterface.style.height = '100%';
+    chatInterface.style.borderRadius = isMobileViewport() ? '0' : r;
+    notifyParentResize(true);
+    return;
+  }
   if (isMobileViewport()) {
     // Mobile: use full-screen overlay style
     ROOT.style.right = '0';
@@ -808,6 +1403,7 @@ function applyOpenLayout() {
     ROOT.style.borderRadius = '0';
     chatInterface.style.width = '100%';
     chatInterface.style.height = '100%';
+    chatInterface.style.borderRadius = shellRadius;
   } else {
     // Desktop / tablet: use card sizes with optional expansion,
     // but cap by viewport height so it stays vertically responsive
@@ -817,21 +1413,31 @@ function applyOpenLayout() {
     const maxAllowedHeight = Math.max(360, window.innerHeight - verticalMargin);
     const finalHeight = Math.min(baseHeight, maxAllowedHeight);
 
-    ROOT.style.right = '24px';
     ROOT.style.bottom = '60px';
-    ROOT.style.borderRadius = '22px';
+    ROOT.style.right = '24px';
+    ROOT.style.borderRadius = r;
     ROOT.style.width = `${baseWidth}px`;
     ROOT.style.height = `${finalHeight}px`;
     chatInterface.style.width = `${baseWidth}px`;
     chatInterface.style.height = `${finalHeight}px`;
+    chatInterface.style.borderRadius = r;
   }
 }
 
 function applyClosedLayout() {
-  ROOT.style.right = '24px';
+  if (IFRAME_MODE) {
+    ROOT.style.bottom = '0';
+    ROOT.style.right = '0';
+    ROOT.style.width = '100%';
+    ROOT.style.height = '100%';
+    ROOT.style.borderRadius = '50%';
+    notifyParentResize(false);
+    return;
+  }
   ROOT.style.bottom = '60px';
-  ROOT.style.width = '64px';
-  ROOT.style.height = '64px';
+  ROOT.style.right = '24px';
+  ROOT.style.width = sendBtnBase + 'px';
+  ROOT.style.height = sendBtnBase + 'px';
   ROOT.style.borderRadius = '50%';
 }
 
@@ -840,12 +1446,12 @@ function toggleResize() {
   if (isMobileViewport()) return;
 
   isExpanded = !isExpanded;
-  
+
   applyOpenLayout();
 
   resizeButton.innerHTML = getIconSVG(isExpanded ? 'shrink' : 'expand');
   resizeButton.title = isExpanded ? 'Make smaller' : 'Make larger';
-  
+
   // Update existing source cards to match new size
   updateSourceCardsSize();
 }
@@ -857,18 +1463,18 @@ function updateSourceCardsSize() {
     const cardsContainer = container.querySelector('.cards-container');
     const scrollableArea = container.querySelector('.scrollable-area');
     const sourceCards = container.querySelectorAll('.source-card');
-    
+
     if (cardsContainer && scrollableArea && sourceCards.length > 0) {
       const newWidth = isExpanded ? '500px' : '300px';
-      
+
       // Update container width
       cardsContainer.style.width = newWidth;
       cardsContainer.style.maxWidth = newWidth;
-      
+
       // Update scrollable area width
       scrollableArea.style.width = newWidth;
       scrollableArea.style.maxWidth = newWidth;
-      
+
       // Update each source card width
       sourceCards.forEach(card => {
         card.style.width = newWidth;
@@ -879,35 +1485,57 @@ function updateSourceCardsSize() {
   });
 }
 
-/* Toggle function */
-let isOpen = false;
-function toggleChat() {
-isOpen = !isOpen;
-
-if (isOpen) {
-  // Expand to full chat
+revealChatPanel = () => {
+  isOpen = true;
   applyOpenLayout();
   ROOT.style.flexDirection = 'column';
   ROOT.style.overflow = 'hidden';
   chatIcon.style.display = 'none';
   chatInterface.style.display = 'flex';
-  
-  // Update session activity when user opens chat
+  chatInterface.style.background = customStyling.backgroundColor;
+  chatInterface.style.border = `1px solid ${shellBorderColor}`;
+  chatInterface.style.boxShadow = '';
   updateSessionActivity();
-} else {
-  // Collapse to icon
+  if (IFRAME_MODE) notifyParentResize(true);
+};
+
+collapseToBubble = () => {
   applyClosedLayout();
   ROOT.style.flexDirection = 'row';
   ROOT.style.overflow = 'visible';
   chatIcon.style.display = 'flex';
   chatInterface.style.display = 'none';
-}
+};
+
+async function toggleChat() {
+  if (!isOpen) {
+    await detectSsoRequirement();
+    if (ssoRequired && !isWidgetSsoTokenValid()) {
+      const signedIn = await ensureWidgetSsoSession({ requireInteractive: true });
+      if (!signedIn) return;
+      return;
+    }
+    isOpen = true;
+    applyOpenLayout();
+    ROOT.style.flexDirection = 'column';
+    ROOT.style.overflow = 'hidden';
+    chatIcon.style.display = 'none';
+    chatInterface.style.display = 'flex';
+    updateSessionActivity();
+  } else {
+    hideSsoGate();
+    isOpen = false;
+    if (collapseToBubble) collapseToBubble();
+    if (IFRAME_MODE) notifyParentResize(false);
+  }
 }
 
 // Keep layout responsive when the viewport size changes
 window.addEventListener('resize', () => {
   if (!chatInterface || !ROOT) return;
-  if (isOpen) {
+  if (ssoGateEl) {
+    applySsoGateLayout();
+  } else if (isOpen) {
     applyOpenLayout();
   } else {
     applyClosedLayout();
@@ -915,12 +1543,24 @@ window.addEventListener('resize', () => {
 });
 
 /* Add click handler only to the icon */
-chatIcon.addEventListener('click', toggleChat);
+chatIcon.addEventListener('click', () => { void toggleChat(); });
 
 /* Mount */
 ROOT.append(chatIcon);
 chatInterface.append(header, chatArea, inputArea);
 ROOT.append(chatInterface);
+
+  // Auto-open on load if data-open-on-load is set
+  if (ROOT.dataset.openOnLoad === 'true' || ROOT.getAttribute('data-open-on-load') === 'true') {
+    void toggleChat();
+  }
+
+  // Signal ready for parent pages (e.g. Customize Embed preview or iframe loader)
+  window.dispatchEvent(new CustomEvent('contentiq-widget-ready'));
+  if (IFRAME_MODE && typeof window.contentIQNotifyParentReady === 'function') {
+    window.contentIQNotifyParentReady();
+  }
+  if (IFRAME_MODE) notifyParentResize(false);
 } // end buildUI
 
 /* ===== utility functions ===== */
@@ -941,7 +1581,7 @@ try {
 
 function parseMarkdown(text) {
   if (!text) return '';
-  
+
   // Escape HTML to prevent XSS
   let html = text
     .replace(/&/g, "&amp;")
@@ -984,10 +1624,10 @@ function parseMarkdown(text) {
 
   // Line breaks
   html = html.replace(/\n/g, '<br>');
-  
+
   // Clean up trailing <br> tags that create unwanted spacing
   html = html.replace(/(<br>\s*)+$/g, '');
-  
+
   // Clean up any standalone asterisks at the end
   html = html.replace(/\s*\*\*\s*$/g, '');
 
@@ -998,7 +1638,7 @@ function parseMarkdown(text) {
 function parseMarkdownTables(html) {
   // Match table pattern: header row with | separators, separator row, then data rows
   const tableRegex = /(\|.+\|[\r\n]+\|[\s\-\|]+\|[\r\n]+(?:\|.+\|[\r\n]*)+)/g;
-  
+
   return html.replace(tableRegex, (match) => {
     const lines = match.trim().split('\n').filter(line => line.trim());
     if (lines.length < 2) return match;
@@ -1018,7 +1658,7 @@ function parseMarkdownTables(html) {
       return `<tr>${cellsHtml}</tr>`;
     }).join('');
 
-    return `<div class="table-wrapper" style="overflow-x: auto; width: 100%; max-width: 100%; box-sizing: border-box;"><table style="width: 250%; max-width: 250%; table-layout: fixed;"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+    return `<div class="table-wrapper" style="overflow-x: auto; width: 100%; max-width: 100%; box-sizing: border-box;"><table style="width: max-content; min-width: 100%; max-width: none; table-layout: auto; border-collapse: collapse;"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
   });
 }
 
@@ -1026,13 +1666,13 @@ function parseMarkdownTables(html) {
 function parseMarkdownLists(html) {
   // Handle bold text with dashes (like "**Term life insurance** — description")
   html = html.replace(/\*\*(.+?)\*\* — (.+)/g, '<div class="list-item"><strong>$1</strong> — $2</div>');
-  
+
   // Handle bold text with dashes (alternative format)
   html = html.replace(/\*\*(.+?)\*\* – (.+)/g, '<div class="list-item"><strong>$1</strong> – $2</div>');
-  
+
   // Handle bold text with dashes (another alternative)
   html = html.replace(/\*\*(.+?)\*\* - (.+)/g, '<div class="list-item"><strong>$1</strong> - $2</div>');
-  
+
   // Keep ordered lists for numbered lists
   html = html.replace(/^[\s]*\d+\. (.+)$/gim, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>[\s]*)+/g, (match) => {
@@ -1042,37 +1682,191 @@ function parseMarkdownLists(html) {
   return html;
 }
 
+function stripSourceSectionsFromMessage(raw) {
+  if (!raw || typeof raw !== 'string') return raw;
+  let out = raw.trim();
+  const patterns = [
+    /(?:^|\n)\s*(?:\*\*Sources\*\*|Sources:?|\*\*Source\*\*)\s*[\n\r]*[\s\S]*$/i,
+    /(?:^|\n)\s*Source:\s*[\n\r]*[\s\S]*$/i,
+  ];
+  for (const p of patterns) {
+    const next = out.replace(p, '').trim();
+    if (next !== out) out = next;
+  }
+  return out;
+}
+
+function parseCssColorToRgb(cssColor) {
+  if (!cssColor || cssColor === 'transparent') return null;
+  const m = cssColor.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+  if (!m) return null;
+  const r = Math.min(255, Math.round(+m[1]));
+  const g = Math.min(255, Math.round(+m[2]));
+  const b = Math.min(255, Math.round(+m[3]));
+  const a = m[4] !== undefined ? +m[4] : 1;
+  return { r, g, b, a };
+}
+
+function relativeLuminance255(r, g, b) {
+  const lin = [r, g, b].map((c) => {
+    c = c / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+}
+
+function getEffectiveCellBackgroundRgb(el) {
+  const layers = [];
+  let n = el;
+  let depth = 0;
+  while (n && depth < 14) {
+    const bg = window.getComputedStyle(n).backgroundColor;
+    const rgba = parseCssColorToRgb(bg);
+    if (rgba && rgba.a > 0.02) {
+      layers.push(rgba);
+    }
+    n = n.parentElement;
+    depth++;
+  }
+  let base = { r: 255, g: 255, b: 255 };
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const L = layers[i];
+    const a = L.a;
+    base = {
+      r: Math.round(L.r * a + base.r * (1 - a)),
+      g: Math.round(L.g * a + base.g * (1 - a)),
+      b: Math.round(L.b * a + base.b * (1 - a)),
+    };
+  }
+  return base;
+}
+
+function applyTableTextContrast(root) {
+  if (!root || !root.querySelectorAll) return;
+  const cells = root.querySelectorAll('.table-wrapper th, .table-wrapper td');
+  if (!cells.length) return;
+
+  const DARK = '#0f172a';
+  const DARK_HEAD = '#374151';
+  const LIGHT = '#f8fafc';
+  const LIGHT_HEAD = '#e5e7eb';
+  const LINK_ON_LIGHT = '#0b0b0c';
+  const LINK_ON_DARK = '#93c5fd';
+
+  cells.forEach((cell) => {
+    const { r, g, b } = getEffectiveCellBackgroundRgb(cell);
+    const L = relativeLuminance255(r, g, b);
+    const darkText = L > 0.42;
+    const isTh = cell.tagName === 'TH';
+    cell.style.color = darkText ? (isTh ? DARK_HEAD : DARK) : (isTh ? LIGHT_HEAD : LIGHT);
+
+    cell.querySelectorAll('a').forEach((a) => {
+      a.style.color = darkText ? LINK_ON_LIGHT : LINK_ON_DARK;
+    });
+  });
+}
+
+function applyTableOverflowHint(root) {
+  if (!root || !root.querySelectorAll) return;
+  const wrappers = root.querySelectorAll('.table-wrapper');
+  if (!wrappers.length) return;
+
+  wrappers.forEach((wrapper) => {
+    const updateOverflowHint = () => {
+      const canScrollX = wrapper.scrollWidth > wrapper.clientWidth + 2;
+      const atRightEdge = wrapper.scrollLeft + wrapper.clientWidth >= wrapper.scrollWidth - 2;
+      wrapper.classList.toggle('ciq-table-overflowing', canScrollX && !atRightEdge);
+    };
+
+    if (wrapper.dataset.ciqOverflowHintBound === '1') {
+      updateOverflowHint();
+      return;
+    }
+
+    wrapper.dataset.ciqOverflowHintBound = '1';
+    wrapper.addEventListener('scroll', updateOverflowHint, { passive: true });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => updateOverflowHint());
+      ro.observe(wrapper);
+      wrapper._ciqOverflowHintObserver = ro;
+    }
+
+    requestAnimationFrame(updateOverflowHint);
+    setTimeout(updateOverflowHint, 0);
+  });
+}
+
 function parseSources(text) {
-  const sources = [];
-  
-  // Look for source patterns like 【1】, 【2】, etc.
-  const sourcePattern = /【(\d+)】\s*([^【]+?)(?=【\d+】|$)/g;
-  let match;
-  
-  while ((match = sourcePattern.exec(text)) !== null) {
-    const sourceNumber = match[1];
-    const sourceText = match[2].trim();
-    
-    // Extract URL and description
-    const urlMatch = sourceText.match(/(https?:\/\/[^\s]+)/);
-    const url = urlMatch ? urlMatch[1] : '';
-    const description = sourceText.replace(url, '').replace(/^[–—]\s*/, '').trim();
-    
-    if (url && description) {
-      sources.push({
-        number: sourceNumber,
-        url: url,
-        description: description
+  if (!text) return [];
+
+  const dedupeByNumber = (items) => {
+    const seen = new Set();
+    return items.filter((item) => {
+      if (seen.has(item.number)) return false;
+      seen.add(item.number);
+      return true;
+    });
+  };
+
+  const results = [];
+
+  let searchText = text;
+  const sourcesSectionMatch = text.match(
+    /(?:Sources:?|\*\*Sources\*\*|\*\*Source\*\*|Source:)\s*[\n\r<]*([\s\S]*)$/i
+  );
+  if (sourcesSectionMatch) {
+    searchText = sourcesSectionMatch[1];
+  }
+
+  const patterns = [
+    /【(\d+)】\s*([\s\S]*?)(?=【\d+】|\[\d+\]|$)/g,
+    /\[(\d+)\]\s*([\s\S]*?)(?=【\d+】|\[\d+\]|$)/g,
+  ];
+
+  patterns.forEach((pattern) => {
+    let match;
+    while ((match = pattern.exec(searchText)) !== null) {
+      const number = match[1];
+      const sourceText = match[2].trim();
+
+      const urlMatch = sourceText.match(/(https?:\/\/[^\s]+)/);
+      const url = urlMatch ? urlMatch[1] : '';
+      let description = sourceText.replace(url, '').replace(/^[–—\-]\s*/, '').trim();
+      if (!description) description = 'Source reference';
+
+      results.push({
+        number,
+        url: url || '#',
+        description,
       });
     }
+  });
+
+  if (results.length === 0) {
+    const inlineRefs = [
+      ...(text.match(/\[\d+\]/g) || []),
+      ...(text.match(/【\d+】/g) || []),
+    ];
+
+    inlineRefs.forEach((ref) => {
+      const numberMatch = ref.match(/\d+/);
+      if (!numberMatch) return;
+      const number = numberMatch[0];
+      results.push({
+        number,
+        url: '#',
+        description: `Source reference ${number}`,
+      });
+    });
   }
-  
-  return sources;
+
+  return dedupeByNumber(results);
 }
 
 function createSourceCards(sources, expanded = false) {
   if (!sources || sources.length === 0) return null;
-  
+
   // Create the main sources container
   const sourcesContainer = document.createElement('div');
   sourcesContainer.className = 'source-cards-container';
@@ -1084,7 +1878,7 @@ function createSourceCards(sources, expanded = false) {
     max-width: 100%;
     box-sizing: border-box;
   `;
-  
+
   // Create the dropdown header
   const sourcesHeader = document.createElement('div');
   sourcesHeader.style.cssText = `
@@ -1099,7 +1893,7 @@ function createSourceCards(sources, expanded = false) {
     transition: all 0.2s ease;
     user-select: none;
   `;
-  
+
   const sourcesTitle = document.createElement('span');
   sourcesTitle.style.cssText = `
     color: #ffffff;
@@ -1107,7 +1901,7 @@ function createSourceCards(sources, expanded = false) {
     font-size: 14px;
   `;
   sourcesTitle.textContent = `Sources (${sources.length})`;
-  
+
   const dropdownIcon = document.createElement('span');
   dropdownIcon.style.cssText = `
     color: var(--ciq-blue);
@@ -1116,10 +1910,10 @@ function createSourceCards(sources, expanded = false) {
     margin-left: auto;
   `;
   dropdownIcon.innerHTML = '▼';
-  
+
   sourcesHeader.appendChild(sourcesTitle);
   sourcesHeader.appendChild(dropdownIcon);
-  
+
   // Create the scrollable cards container (initially hidden)
   const cardsContainer = document.createElement('div');
   cardsContainer.className = 'cards-container';
@@ -1135,7 +1929,7 @@ function createSourceCards(sources, expanded = false) {
     margin-left: auto;
     margin-right: auto;
   `;
-  
+
   const scrollableArea = document.createElement('div');
   scrollableArea.className = 'scrollable-area';
   const scrollableWidth = expanded ? '500px' : '300px';
@@ -1155,13 +1949,13 @@ function createSourceCards(sources, expanded = false) {
     min-width: 0;
     height: 180px;
   `;
-  
+
   // Hide scrollbar
   scrollableArea.style.cssText += `
     scrollbar-width: none;
     -ms-overflow-style: none;
   `;
-  
+
   // Add scrollbar hiding for webkit browsers
   const style = document.createElement('style');
   style.textContent = `
@@ -1171,7 +1965,7 @@ function createSourceCards(sources, expanded = false) {
   `;
   document.head.appendChild(style);
   scrollableArea.classList.add('source-scrollable');
-  
+
   // Create scroll buttons
   const leftButton = document.createElement('button');
   leftButton.style.cssText = `
@@ -1204,7 +1998,7 @@ function createSourceCards(sources, expanded = false) {
     leftButton.style.background = '#1a1a1a'; 
     leftButton.style.borderColor = '#333333'; 
   };
-  
+
   const rightButton = document.createElement('button');
   rightButton.style.cssText = `
     position: absolute;
@@ -1236,7 +2030,7 @@ function createSourceCards(sources, expanded = false) {
     rightButton.style.background = '#1a1a1a'; 
     rightButton.style.borderColor = '#333333'; 
   };
-  
+
   // Create individual source cards
   sources.forEach((source, index) => {
     const sourceCard = document.createElement('div');
@@ -1252,7 +2046,7 @@ function createSourceCards(sources, expanded = false) {
       overflow: hidden;
       box-sizing: border-box;
     `;
-    
+
     const sourceHeader = document.createElement('div');
     sourceHeader.style.cssText = `
       display: flex;
@@ -1263,7 +2057,7 @@ function createSourceCards(sources, expanded = false) {
       width: 100%;
       box-sizing: border-box;
     `;
-    
+
     const sourceNumber = document.createElement('span');
     sourceNumber.style.cssText = `
       background: #246BFD;
@@ -1276,7 +2070,7 @@ function createSourceCards(sources, expanded = false) {
       text-align: center;
     `;
     sourceNumber.textContent = `【${source.number}】`;
-    
+
     const sourceLink = document.createElement('a');
     sourceLink.href = source.url;
     sourceLink.target = '_blank';
@@ -1285,10 +2079,10 @@ function createSourceCards(sources, expanded = false) {
     sourceLink.textContent = 'View source';
     sourceLink.onmouseover = () => { sourceLink.style.cssText = sourceLinkStyle + sourceLinkHoverStyle; };
     sourceLink.onmouseout = () => { sourceLink.style.cssText = sourceLinkStyle; };
-    
+
     sourceHeader.appendChild(sourceNumber);
     sourceHeader.appendChild(sourceLink);
-    
+
     const sourceDescription = document.createElement('div');
     sourceDescription.style.cssText = `
       color: #cccccc;
@@ -1305,21 +2099,21 @@ function createSourceCards(sources, expanded = false) {
       box-sizing: border-box;
     `;
     sourceDescription.textContent = source.description;
-    
+
     sourceCard.appendChild(sourceHeader);
     sourceCard.appendChild(sourceDescription);
     scrollableArea.appendChild(sourceCard);
   });
-  
+
   // Add carousel navigation functionality
   let currentIndex = 0;
-  
+
   // Function to update button visibility
   function updateButtonVisibility() {
     leftButton.style.display = currentIndex > 0 ? 'flex' : 'none';
     rightButton.style.display = currentIndex < sources.length - 1 ? 'flex' : 'none';
   }
-  
+
   // Function to scroll to a specific index
   function scrollToIndex(index) {
     if (index >= 0 && index < sources.length) {
@@ -1329,22 +2123,22 @@ function createSourceCards(sources, expanded = false) {
       updateButtonVisibility();
     }
   }
-  
+
   leftButton.onclick = () => {
     if (currentIndex > 0) {
       scrollToIndex(currentIndex - 1);
     }
   };
-  
+
   rightButton.onclick = () => {
     if (currentIndex < sources.length - 1) {
       scrollToIndex(currentIndex + 1);
     }
   };
-  
+
   // Initialize button visibility
   updateButtonVisibility();
-  
+
   // Toggle dropdown functionality
   let isExpanded = false;
   sourcesHeader.onclick = () => {
@@ -1365,7 +2159,7 @@ function createSourceCards(sources, expanded = false) {
       sourcesHeader.style.borderBottomRightRadius = '12px';
     }
   };
-  
+
   // Hover effects for header
   sourcesHeader.onmouseover = () => {
     sourcesHeader.style.background = '#333333';
@@ -1375,14 +2169,14 @@ function createSourceCards(sources, expanded = false) {
     sourcesHeader.style.background = '#1a1a1a';
     sourcesHeader.style.borderColor = '#333333';
   };
-  
+
   cardsContainer.appendChild(leftButton);
   cardsContainer.appendChild(scrollableArea);
   cardsContainer.appendChild(rightButton);
-  
+
   sourcesContainer.appendChild(sourcesHeader);
   sourcesContainer.appendChild(cardsContainer);
-  
+
   return sourcesContainer;
 }
 
@@ -1406,6 +2200,7 @@ function createActionIcons(messageText, messageId) {
 // Ensure we have a valid message ID
 if (!messageId) {
   console.error('[contentIQ widget] Missing messageId in createActionIcons');
+
   return document.createElement('div'); // Return empty div if no message ID
 }
 
@@ -1424,7 +2219,7 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
   chip.innerHTML = getIconSVG(icon);
   chip.onmouseover = ()=>{ chip.style.background='#333333'; chip.style.borderColor='var(--ciq-blue)'; chip.style.transform='translateY(-1px)'; };
   chip.onmouseout  = ()=>{ chip.style.background='#1a1a1a'; chip.style.borderColor='#333333'; chip.style.transform='none'; };
-  
+
   // Add click functionality for copy button
   if (icon === 'copy') {
     chip.onclick = async () => {
@@ -1436,7 +2231,7 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         chip.style.background = '#10B981';
         chip.style.borderColor = '#10B981';
         chip.style.color = '#fff';
-        
+
         setTimeout(() => {
           chip.innerHTML = originalHTML;
           chip.style.background = '#1a1a1a';
@@ -1445,6 +2240,7 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         }, 1500);
       } catch (err) {
         console.error('Failed to copy text: ', err);
+
         // Fallback for older browsers
         const textArea = document.createElement('textarea');
         textArea.value = messageText;
@@ -1455,17 +2251,17 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
       }
     };
   }
-  
+
   // Add feedback functionality for thumbs-up and thumbs-down
   if (icon === 'thumbs-up' || icon === 'thumbs-down') {
     chip.dataset.feedbackType = icon === 'thumbs-up' ? 'helpful' : 'not_helpful';
-    
+
     // Add a data attribute to identify this as a feedback button
     chip.dataset.feedbackButton = icon;
-    
+
     // Add a title attribute for tooltip
     chip.title = icon === 'thumbs-up' ? 'This was helpful' : 'This was not helpful';
-    
+
     chip.onclick = async () => {
       try {
         // First, reset all feedback buttons in this container to default state
@@ -1477,23 +2273,23 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
           btn.style.color = '#ffffff';
           btn.classList.remove('selected-feedback');
         });
-        
+
         // Show immediate visual feedback that the button was clicked
         chip.style.background = icon === 'thumbs-up' ? '#1a3d1a' : '#3d1a1a';
         chip.style.borderColor = icon === 'thumbs-up' ? '#10B981' : '#EF4444';
         chip.style.transform = 'translateY(-2px)';
         chip.classList.add('selected-feedback');
-        
+
         await sendFeedback(messageId, chip.dataset.feedbackType);
-        
+
         // Enhanced visual feedback - briefly change the icon to a checkmark
         const originalHTML = chip.innerHTML;
-        
+
         chip.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
         chip.style.background = '#10B981';
         chip.style.borderColor = '#10B981';
         chip.style.color = '#fff';
-        
+
         setTimeout(() => {
           // Return to the selected state, not the original state
           chip.innerHTML = originalHTML;
@@ -1503,10 +2299,11 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
         }, 1500);
       } catch (err) {
         console.error('Failed to send feedback:', err);
+
       }
     };
   }
-  
+
   actionIcons.appendChild(chip);
 });
 return actionIcons;
@@ -1519,18 +2316,21 @@ row.style.cssText = `
   ${isUser ? 'flex-direction: row-reverse;' : ''}
 `;
 const av = document.createElement('div');
+av.dataset.ciqIconSize = 'avatar';
 const avatarColor = isUser ? (customStyling.userCircleColor || 'var(--ciq-blue)') : (customStyling.accentColor || 'var(--ciq-blue)');
+const msgIconScale = getIconScale();
+const msgAvatarSize = Math.round(40 * msgIconScale);
+const msgAvatarFont = Math.round(15 * msgIconScale);
 av.style.cssText = `
-  width:40px; height:40px; border-radius:50%; flex-shrink:0;
-  background: ${avatarColor}; color:#fff; font-weight:700; font-size:15px;
+  width:${msgAvatarSize}px; height:${msgAvatarSize}px; border-radius:50%; flex-shrink:0;
+  background: ${avatarColor}; color:#fff; font-weight:700; font-size:${msgAvatarFont}px;
   display:flex; align-items:center; justify-content:center;
   box-shadow: 0 10px 22px rgba(36,107,253,.35);
 `;
 if (isUser) {
   av.textContent = 'U';
 } else {
-  const firstLetter = (customStyling.agentName || 'ContentIQ').charAt(0).toUpperCase();
-  av.textContent = firstLetter;
+  setAgentAvatarLetterOrBrandImage(av);
 }
 
 const messageContainer = document.createElement('div');
@@ -1538,7 +2338,7 @@ messageContainer.style.cssText = `flex:1; display:flex; flex-direction:column; a
 
 // Parse sources from the message
 const sources = !isUser ? parseSources(message) : [];
-const messageWithoutSources = !isUser ? message.replace(/Sources[\s\S]*$/, '').trim() : message;
+const messageWithoutSources = !isUser ? stripSourceSectionsFromMessage(message) : message;
 
 const bubble = document.createElement('div');
 bubble.style.cssText = `
@@ -1559,6 +2359,8 @@ bubble.style.cssText = `
   box-shadow:${isUser ? '0 12px 28px rgba(36,107,253,.30)' : '0 8px 22px rgba(0,0,0,.3)'};
 `;
 bubble.innerHTML = parseMarkdown(messageWithoutSources);
+applyTableTextContrast(bubble);
+applyTableOverflowHint(bubble);
 
 messageContainer.appendChild(bubble);
 
@@ -1576,15 +2378,14 @@ if (sources && sources.length > 0) {
   if (!isUser && serverMessageId) {
     // Use the server-provided message ID
     const messageId = serverMessageId;
-    console.log('[contentIQ widget] Using server message ID');
-    
+
     bubble.dataset.messageId = messageId;
-    
+
     const actionIcons = createActionIcons(message, messageId);
     messageContainer.appendChild(actionIcons);
   } else if (!isUser && !serverMessageId) {
     // For messages without server IDs (like error messages), don't create action icons
-    console.log('[contentIQ widget] No message ID provided - skipping action icons');
+
   }
 
 row.append(av, messageContainer);
@@ -1598,15 +2399,19 @@ function addTypingIndicator() {
   row.style.cssText = `
     display:flex; align-items:flex-start; gap:12px; margin: 0 0 20px;
   `;
-  
+
   const av = document.createElement('div');
+  av.dataset.ciqIconSize = 'avatar';
+  const typingIconScale = getIconScale();
+  const typingAvatarSize = Math.round(40 * typingIconScale);
+  const typingAvatarFont = Math.round(15 * typingIconScale);
   av.style.cssText = `
-    width:40px; height:40px; border-radius:50%; flex-shrink:0;
-    background: var(--ciq-blue); color:#fff; font-weight:700; font-size:15px;
+    width:${typingAvatarSize}px; height:${typingAvatarSize}px; border-radius:50%; flex-shrink:0;
+    background: var(--ciq-blue); color:#fff; font-weight:700; font-size:${typingAvatarFont}px;
     display:flex; align-items:center; justify-content:center;
     box-shadow: 0 10px 22px rgba(36,107,253,.35);
   `;
-  av.textContent = 'S';
+  setAgentAvatarLetterOrBrandImage(av);
 
   const messageContainer = document.createElement('div');
   messageContainer.style.cssText = `flex:1; display:flex; flex-direction:column; align-items:flex-start;`;
@@ -1624,7 +2429,7 @@ function addTypingIndicator() {
     align-items: center;
     gap: 4px;
   `;
-  
+
   // Create typing dots
   const dots = document.createElement('div');
   dots.style.cssText = `
@@ -1632,7 +2437,7 @@ function addTypingIndicator() {
     gap: 4px;
     align-items: center;
   `;
-  
+
   for (let i = 0; i < 3; i++) {
     const dot = document.createElement('div');
     dot.style.cssText = `
@@ -1645,7 +2450,7 @@ function addTypingIndicator() {
     `;
     dots.appendChild(dot);
   }
-  
+
   bubble.appendChild(dots);
   messageContainer.appendChild(bubble);
   row.append(av, messageContainer);
@@ -1663,15 +2468,14 @@ function removeTypingIndicator() {
 async function sendFeedback(messageId, feedbackType) {
 if (!messageId || !feedbackType) {
   console.error('[contentIQ widget] Missing messageId or feedbackType for feedback');
+
   return;
 }
-
-console.log('[contentIQ widget] Sending feedback');
 
 // Check if thread has timed out before sending feedback
 const threadTimedOut = checkThreadTimeout();
 if (threadTimedOut) {
-    console.log('[contentIQ widget] Thread timed out, skipping feedback');
+
     return;
 }
 
@@ -1679,14 +2483,20 @@ if (threadTimedOut) {
 const threadId = `widget_${AGENT_ID}_${sessionId}`;
 
 try {
+  if (ssoRequired && !isWidgetSsoTokenValid()) {
+    const signedIn = await ensureWidgetSsoSession({ requireInteractive: true });
+    if (!signedIn) return;
+  }
   const auth = await buildAuth();
+  const feedbackHeaders = widgetApiHeaders({
+    'Content-Type': 'application/json',
+    'X-Agent-Id': AGENT_ID,
+    'X-Session-Id': sessionId || 'new'
+  });
   const res = await fetch(BACKEND + '/api/widget/feedback', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Agent-Id': AGENT_ID,
-      'X-Session-Id': sessionId || 'new'
-    },
+    headers: feedbackHeaders,
+    credentials: 'include',
     body: JSON.stringify({
       ...auth,
       thread_id: threadId,
@@ -1694,21 +2504,28 @@ try {
       feedback_type: feedbackType
     })
   });
-  
-  if (!res.ok) {
-    console.error(`[contentIQ widget] Error sending feedback: ${res.status}`);
+
+  if (res.status === 401 && ssoRequired) {
+    revokeWidgetSsoSession();
+    await ensureWidgetSsoSession({ requireInteractive: true });
     return;
   }
-  
+
+  if (!res.ok) {
+    console.error(`[contentIQ widget] Error sending feedback: ${res.status}`);
+
+    return;
+  }
+
   const responseData = await res.json();
-  console.log('[contentIQ widget] Feedback sent successfully');
-  
+
   // Update session activity
   updateSessionActivity();
-  
+
   return responseData;
 } catch (e) {
   console.error('[contentIQ widget] Error sending feedback:', e);
+
   throw e;
 }
 }
@@ -1721,7 +2538,7 @@ input.value = '';
 // Check if thread has timed out before sending message
 const threadTimedOut = checkThreadTimeout();
 if (threadTimedOut) {
-    console.log('[contentIQ widget] Thread timed out, clearing session for new thread');
+
     localStorage.removeItem(storageKey);
     sessionId = null;
 }
@@ -1733,39 +2550,65 @@ updateSessionActivity();
 addTypingIndicator();
 
 try{
+  if (ssoRequired && !isWidgetSsoTokenValid()) {
+    removeTypingIndicator();
+    const signedIn = await ensureWidgetSsoSession({ requireInteractive: true });
+    if (!signedIn) return;
+    addTypingIndicator();
+  }
   const auth = await buildAuth();
+  const chatHeaders = widgetApiHeaders({
+    'Content-Type':'application/json',
+    'X-Agent-Id': AGENT_ID,
+    'X-Session-Id': sessionId || 'new'
+  });
+
   const res = await fetch(BACKEND + '/api/widget/chat', {
-    method:'POST', 
-    headers:{
-      'Content-Type':'application/json',
-      'X-Agent-Id': AGENT_ID,  // Add agent_id in header for preflight
-      'X-Session-Id': sessionId || 'new' // Add session_id in header
-    },
+    method:'POST',
+    headers: chatHeaders,
+    credentials: 'include',
     body: JSON.stringify({ ...auth, message })
   });
-  
+
   // Remove typing indicator before processing response
   removeTypingIndicator();
-  
-  if(!res.ok){ 
-    // Don't create message ID for server errors - just show error message
-    addMessage(`Error: ${res.status}`, false, null); 
-    return; 
+
+  if (res.status === 401 && ssoRequired) {
+    revokeWidgetSsoSession();
+    addMessage('Your session expired. Please sign in again to continue.', false, null);
+    await ensureWidgetSsoSession({ requireInteractive: true });
+    return;
   }
-  
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    const errMsg = errData.error || `Error: ${res.status}`;
+    if (
+      res.status === 403 &&
+      ssoRequired &&
+      (errData.code === 'visitor_access_denied' ||
+        errData.code === 'widget_access_denied' ||
+        errData.legacy_code === 'widget_access_denied')
+    ) {
+      revokeWidgetSsoSession();
+    }
+    addMessage(errMsg, false, null);
+    return;
+  }
+
   // Parse response as JSON to get session_id and message
   const responseData = await res.json();
   const cleanedText = cleanResponse(responseData.assistant);
-  
+
   // Get the message ID from the response if available
   const messageId = responseData.message_id;
-  
+
   // Check if server sent a new session ID (thread timeout)
   const newSessionId = res.headers.get('X-New-Session-ID');
   if (newSessionId) {
-      console.log('[contentIQ widget] Server provided new session ID due to thread timeout');
+
       sessionId = newSessionId;
-      
+
       // Store new session data
       const sessionData = {
           sessionId: sessionId,
@@ -1773,56 +2616,55 @@ try{
           created: Date.now()
       };
       localStorage.setItem(storageKey, JSON.stringify(sessionData));
-      console.log('[contentIQ widget] New session stored after thread timeout');
+
   }
-  
+
   // Log the message ID for debugging
-  console.log('[contentIQ widget] Received server response');
-  
+
   // Add the message to the UI with the server's message ID
   // If messageId is undefined, null, or empty, addMessage will generate a random UUID
   addMessage(cleanedText, false, messageId);
-  
+
   // Store the message ID for later use - make sure it's the server's ID
   const finalMessageId = messageId;
-  console.log('[contentIQ widget] Setting up delayed feedback');
-  
+
   // Send neutral feedback after a delay if no feedback is given
   // Only send feedback for messages with valid server IDs
   if (finalMessageId) {
     setTimeout(() => {
-    
+
     // Find the message bubble by ID
     const messageBubbles = document.querySelectorAll('[data-message-id]');
     let targetBubble = null;
-    
+
     for (const bubble of messageBubbles) {
       if (bubble.dataset.messageId === finalMessageId) {
         targetBubble = bubble;
         break;
       }
     }
-    
+
     // If we found the bubble and no feedback has been given yet
     if (targetBubble) {
       const parentContainer = targetBubble.parentElement;
       if (parentContainer) {
         const feedbackButtons = parentContainer.querySelectorAll('[data-feedback-button].selected-feedback');
-        
+
         // If no feedback button is selected, send neutral feedback
         if (feedbackButtons.length === 0) {
-          console.log('[contentIQ widget] No feedback given, sending neutral feedback');
+
           sendFeedback(finalMessageId, 'neutral').catch(err => {
             console.error('[contentIQ widget] Error sending neutral feedback:', err);
+
           });
         }
       }
     } else {
-      console.warn('[contentIQ widget] Could not find message bubble for feedback');
+
     }
     }, 30000); // Wait 30 seconds before sending neutral feedback
   }
-  
+
   // Store session ID for future requests (only if not already handled by X-New-Session-ID header)
   if (!newSessionId && responseData.session_id && responseData.session_id !== sessionId) {
     sessionId = responseData.session_id;
@@ -1832,7 +2674,7 @@ try{
       created: Date.now()
     };
     localStorage.setItem(storageKey, JSON.stringify(sessionData));
-    console.log('[contentIQ widget] New session stored');
+
   } else {
     // Update activity even if session ID didn't change
     updateSessionActivity();
@@ -1840,10 +2682,11 @@ try{
 }catch(e){
   // Remove typing indicator on error
   removeTypingIndicator();
-  
+
   // Network errors or other exceptions - don't create message ID for these either
   addMessage('Sorry, I encountered an error. Please try again.', false, null);
   console.error('[contentIQ widget] Network or other error:', e);
+
 }
 }
 
@@ -1852,23 +2695,53 @@ try{
     if (!input || !sendButton || !micButton) return;
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && input.value.trim()) sendMessage(input.value.trim()); });
     sendButton.addEventListener('click', ()=>{ if(input.value.trim()) sendMessage(input.value.trim()); });
-    micButton.addEventListener('click', ()=> console.log('Voice input clicked'));
   }
 
-  // Fetch custom styling, then build the UI once styling is ready
-  fetchCustomStyling()
-    .then(styling => {
+  async function initializeWidget() {
+    try {
+      await detectSsoRequirement();
+      const styling = await fetchCustomStyling();
       customStyling = styling;
       applyCustomStyling();
       buildUI();
       attachEvents();
-    })
-    .catch(err => {
-      console.warn('[contentIQ widget] Using default styling due to fetch error:', err);
-      customStyling = defaultStyling;
-      applyCustomStyling();
-      buildUI();
-      attachEvents();
+    } catch (err) {
+      console.error('[contentIQ widget] Initialization failed', err);
+      if (!ssoRequired) {
+        customStyling = { ...defaultStyling };
+        applyCustomStyling();
+        buildUI();
+        attachEvents();
+      }
+    }
+  }
+
+  initializeWidget();
+  } // end runWidgetBody
+
+  if (IFRAME_MODE) {
+    window.contentIQOnEmbedInit = function (cfg) {
+      runWidgetBody(cfg || {});
+    };
+    if (window.contentIQPendingEmbedInit) {
+      window.contentIQOnEmbedInit(window.contentIQPendingEmbedInit);
+    } else if (typeof window.contentIQNotifyParentReady === 'function') {
+      window.contentIQNotifyParentReady();
+    }
+  } else {
+    const legacyScript =
+      document.currentScript || document.querySelector('script[src*="widget.js"]');
+    const legacyRoot = document.querySelector('.contentiq_symplisticai_chat');
+    if (!legacyScript || !legacyRoot) {
+      console.error('[contentIQ widget] Script tag or root DIV not found');
+      return;
+    }
+    runWidgetBody({
+      agent_id: legacyRoot.dataset.agent,
+      token: legacyScript.dataset.token,
+      backend: legacyScript.dataset.backend,
+      sso: legacyScript.dataset.sso === 'true',
     });
+  }
 
 })(); // End of immediate loading function

@@ -6,6 +6,10 @@
   "files": [
     "dist/widget.min.js",
     "dist/widget.js",
+    "dist/loader.js",
+    "dist/embed.html",
+    "dist/sso_callback.html",
+    "dist/_headers",
     "dist/widget.html"
   ],
   "repository": {

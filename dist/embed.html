@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>symplistic.contentIQ</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      box-sizing: border-box;
+    }
+    #widget-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+  <div id="widget-container">
+    <div class="contentiq_symplisticai_chat"></div>
+  </div>
+
+  <script>
+    window.contentIQEmbedMode = 'iframe';
+
+    (function () {
+      var embedInitReceived = false;
+      var parentOrigin = null;
+
+      function parseReferrerOrigin() {
+        try {
+          if (document.referrer) {
+            return new URL(document.referrer).origin;
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      function isAllowedParentOrigin(origin) {
+        if (!origin || origin === 'null') return false;
+        var refOrigin = parseReferrerOrigin();
+        if (refOrigin && origin === refOrigin) return true;
+        if (origin === 'null') return false;
+        try {
+          var u = new URL(origin);
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+          if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      window.addEventListener('message', function (event) {
+        if (!event.data || event.data.type !== 'contentiq_embed_init') return;
+        if (!isAllowedParentOrigin(event.origin)) {
+          console.error('[contentIQ embed] Rejected init from untrusted origin:', event.origin);
+          return;
+        }
+        if (embedInitReceived) return;
+        embedInitReceived = true;
+        parentOrigin = event.origin;
+
+        var data = event.data;
+        var root = document.querySelector('.contentiq_symplisticai_chat');
+        if (!root) return;
+
+        if (data.agent_id) root.dataset.agent = data.agent_id;
+
+        window.contentIQEmbedConfig = {
+          agent_id: data.agent_id || '',
+          token: data.token || '',
+          backend: data.backend || 'http://localhost:1234',
+          sso: data.sso === true || data.sso === 'true',
+          parent_origin: event.origin,
+        };
+
+        if (typeof window.contentIQOnEmbedInit === 'function') {
+          window.contentIQOnEmbedInit(window.contentIQEmbedConfig);
+        } else {
+          window.contentIQPendingEmbedInit = window.contentIQEmbedConfig;
+        }
+      });
+
+      window.contentIQNotifyParentReady = function () {
+        if (window.parent === window) return;
+        var target = parentOrigin || parseReferrerOrigin() || '*';
+        window.parent.postMessage({ type: 'contentiq-widget-ready' }, target);
+      };
+    })();
+  </script>
+  <script src="widget.js"></script>
+</body>
+</html>
