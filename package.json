@@ -2,15 +2,15 @@
   "name": "contentiq-widget",
   "version": "0.0.0-branch-based",
   "description": "ContentIQ Chat Widget for embedding AI assistants on websites. Uses branch-based deployment (main/prod) instead of semantic versioning.",
-  "main": "dist/widget.min.js",
+  "main": "dist/widget.js",
   "files": [
-    "dist/widget.min.js",
-    "dist/widget.js",
     "dist/loader.js",
     "dist/embed.html",
     "dist/sso_callback.html",
-    "dist/_headers",
-    "dist/widget.html"
+    "dist/widget.min.js",
+    "dist/widget.js",
+    "dist/widget.html",
+    "dist/_headers"
   ],
   "repository": {
     "type": "git",

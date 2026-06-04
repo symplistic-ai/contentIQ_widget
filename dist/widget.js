@@ -56,6 +56,17 @@
     ROOT.dataset.agent = embedConfig.agent_id;
   }
   embedParentOrigin = IFRAME_MODE ? (embedConfig.parent_origin || embedParentOrigin) : null;
+  const embedParentViewportWidth = IFRAME_MODE
+    ? Number(embedConfig.parent_viewport_width) || null
+    : null;
+
+  function isEmbedMobileViewport() {
+    if (!IFRAME_MODE) {
+      return window.innerWidth <= MOBILE_BREAKPOINT;
+    }
+    const w = embedParentViewportWidth != null ? embedParentViewportWidth : window.innerWidth;
+    return w <= MOBILE_BREAKPOINT;
+  }
 
   const WIDGET_SESSION_MARKER_KEY = `contentiq_widget_session_established_${AGENT_ID}`;
   let ssoRequired = SSO_REQUIRED_ATTR;
@@ -75,9 +86,18 @@
     return Object.assign({}, extra || {});
   }
 
-  function notifyParentResize(open) {
+  const IFRAME_CHAT_PANEL = { width: 420, height: 650 };
+
+  function iframeOpenPanelSize() {
+    return {
+      width: isExpanded ? 600 : IFRAME_CHAT_PANEL.width,
+      height: isExpanded ? 800 : IFRAME_CHAT_PANEL.height,
+    };
+  }
+
+  function notifyParentResize(open, mode, requestId) {
     if (!IFRAME_MODE || window.parent === window) return;
-    const mobile = window.innerWidth <= MOBILE_BREAKPOINT;
+    const mobile = isEmbedMobileViewport();
     let width;
     let height;
     if (open) {
@@ -85,12 +105,9 @@
         width = '100vw';
         height = '100vh';
       } else {
-        const baseWidth = isExpanded ? 600 : 420;
-        const verticalMargin = 120;
-        const maxAllowedHeight = Math.max(360, window.innerHeight - verticalMargin);
-        const baseHeight = isExpanded ? 800 : 650;
-        width = baseWidth;
-        height = Math.min(baseHeight, maxAllowedHeight);
+        const panel = iframeOpenPanelSize();
+        width = panel.width;
+        height = panel.height;
       }
     } else {
       const bubble = 72;
@@ -98,7 +115,42 @@
       height = bubble;
     }
     const target = embedParentOrigin || '*';
-    window.parent.postMessage({ type: 'contentiq_resize', width, height, open: !!open }, target);
+    window.parent.postMessage(
+      {
+        type: 'contentiq_resize',
+        width,
+        height,
+        open: !!open,
+        mode: mode || (open ? 'chat' : 'bubble'),
+        request_id: requestId || null,
+      },
+      target
+    );
+  }
+
+  function waitForParentResize(open, mode) {
+    if (!IFRAME_MODE || window.parent === window) {
+      return Promise.resolve();
+    }
+    const requestId = 'ciq_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    return new Promise((resolve) => {
+      const parentOrigin = embedParentOrigin;
+      const timeout = setTimeout(resolve, 150);
+      function onMessage(event) {
+        if (parentOrigin && event.origin !== parentOrigin) return;
+        const data = event.data || {};
+        if (
+          data.type === 'contentiq_resize_applied' &&
+          (!data.request_id || data.request_id === requestId)
+        ) {
+          clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+          resolve();
+        }
+      }
+      window.addEventListener('message', onMessage);
+      notifyParentResize(open, mode, requestId);
+    });
   }
 
   // Session management for conversation continuity
@@ -355,17 +407,36 @@
     }
   }
 
+  function applyIframeOpenShell() {
+    const mobile = isEmbedMobileViewport();
+    const r = '22px';
+    ROOT.style.transition = 'none';
+    chatInterface.style.transition = 'none';
+    ROOT.style.bottom = '0';
+    ROOT.style.right = '0';
+    ROOT.style.width = '100%';
+    ROOT.style.height = '100%';
+    ROOT.style.flexDirection = 'column';
+    ROOT.style.overflow = 'hidden';
+    ROOT.style.borderRadius = mobile ? '0' : r;
+    chatInterface.style.display = 'flex';
+    chatInterface.style.flexDirection = 'column';
+    chatInterface.style.width = '100%';
+    chatInterface.style.height = '100%';
+    chatInterface.style.minWidth = '0';
+    chatInterface.style.minHeight = '0';
+    chatInterface.style.borderRadius = mobile ? '0' : r;
+  }
+
   function applySsoGateLayout() {
     if (!ROOT || !chatInterface) return;
-    const mobile = window.innerWidth <= MOBILE_BREAKPOINT;
+    const mobile = isEmbedMobileViewport();
     if (IFRAME_MODE) {
-      ROOT.style.flexDirection = 'column';
-      ROOT.style.overflow = 'hidden';
-      ROOT.style.width = '100%';
-      ROOT.style.height = '100%';
-      ROOT.style.bottom = '0';
-      ROOT.style.right = '0';
-      notifyParentResize(true);
+      applyIframeOpenShell();
+      chatInterface.style.background = '#fff';
+      chatInterface.style.border = '1px solid #E5E8F0';
+      chatInterface.style.boxShadow = '0 22px 48px rgba(17,24,39,0.18), 0 2px 8px rgba(17,24,39,0.06)';
+      notifyParentResize(true, 'sso');
       return;
     }
     ROOT.style.flexDirection = 'column';
@@ -399,7 +470,8 @@
 
     ssoGateEl = document.createElement('div');
     ssoGateEl.className = 'contentiq-sso-gate';
-    ssoGateEl.style.cssText = 'position:relative;padding:20px;text-align:center;color:#111827;';
+    ssoGateEl.style.cssText =
+      'position:relative;box-sizing:border-box;width:100%;min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:20px;text-align:center;color:#111827;overflow:visible;';
     ssoGateEl.innerHTML = `
       <button type="button" id="contentiqSsoGateClose" aria-label="Close" style="position:absolute;top:10px;right:10px;width:28px;height:28px;border:none;border-radius:50%;background:transparent;color:#6b7280;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">×</button>
       <div style="font-size:16px;font-weight:600;margin-bottom:8px;">Sign in required</div>
@@ -468,7 +540,9 @@
     `;
     ROOT.appendChild(ssoGateEl);
     wireSignIn();
-    if (IFRAME_MODE) notifyParentResize(true);
+    if (IFRAME_MODE) {
+      requestAnimationFrame(() => notifyParentResize(true, 'sso'));
+    }
   }
 
   async function completeWidgetSsoCallback(code, state) {
@@ -591,7 +665,11 @@
   }
 
   async function ensureWidgetSsoSession({ requireInteractive = false } = {}) {
-    await detectSsoRequirement();
+    if (SSO_REQUIRED_ATTR) {
+      ssoRequired = true;
+    } else if (!ssoRequired) {
+      await detectSsoRequirement();
+    }
     if (!ssoRequired) {
       return true;
     }
@@ -600,6 +678,9 @@
     }
     if (!requireInteractive) {
       return false;
+    }
+    if (IFRAME_MODE) {
+      await waitForParentResize(true, 'sso');
     }
     const signedIn = await new Promise((resolve) => {
       showSsoGate(
@@ -1377,21 +1458,15 @@ transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 let isResizing = false;
 
 function isMobileViewport() {
-  return window.innerWidth <= MOBILE_BREAKPOINT;
+  return isEmbedMobileViewport();
 }
 
 function applyOpenLayout() {
   const r = shellRadius;
   if (IFRAME_MODE) {
-    ROOT.style.bottom = '0';
-    ROOT.style.right = '0';
-    ROOT.style.width = '100%';
-    ROOT.style.height = '100%';
-    ROOT.style.borderRadius = isMobileViewport() ? '0' : r;
-    chatInterface.style.width = '100%';
-    chatInterface.style.height = '100%';
+    applyIframeOpenShell();
     chatInterface.style.borderRadius = isMobileViewport() ? '0' : r;
-    notifyParentResize(true);
+    notifyParentResize(true, 'chat');
     return;
   }
   if (isMobileViewport()) {
@@ -1428,9 +1503,13 @@ function applyClosedLayout() {
   if (IFRAME_MODE) {
     ROOT.style.bottom = '0';
     ROOT.style.right = '0';
-    ROOT.style.width = '100%';
-    ROOT.style.height = '100%';
+    ROOT.style.width = sendBtnBase + 'px';
+    ROOT.style.height = sendBtnBase + 'px';
     ROOT.style.borderRadius = '50%';
+    ROOT.style.background = 'transparent';
+    ROOT.style.display = 'flex';
+    ROOT.style.alignItems = 'center';
+    ROOT.style.justifyContent = 'center';
     notifyParentResize(false);
     return;
   }
@@ -1505,15 +1584,22 @@ collapseToBubble = () => {
   ROOT.style.overflow = 'visible';
   chatIcon.style.display = 'flex';
   chatInterface.style.display = 'none';
+  setClosedLauncherIcon(chatIcon);
 };
 
 async function toggleChat() {
   if (!isOpen) {
-    await detectSsoRequirement();
-    if (ssoRequired && !isWidgetSsoTokenValid()) {
+    if (!ssoRequired && !SSO_REQUIRED_ATTR) {
+      await detectSsoRequirement();
+    }
+    if ((ssoRequired || SSO_REQUIRED_ATTR) && !isWidgetSsoTokenValid()) {
+      if (IFRAME_MODE) {
+        ROOT.style.transition = 'none';
+        if (chatInterface) chatInterface.style.transition = 'none';
+      }
       const signedIn = await ensureWidgetSsoSession({ requireInteractive: true });
       if (!signedIn) return;
-      return;
+      if (isOpen) return;
     }
     isOpen = true;
     applyOpenLayout();
@@ -1560,7 +1646,7 @@ ROOT.append(chatInterface);
   if (IFRAME_MODE && typeof window.contentIQNotifyParentReady === 'function') {
     window.contentIQNotifyParentReady();
   }
-  if (IFRAME_MODE) notifyParentResize(false);
+  if (IFRAME_MODE && !isOpen && !ssoGateEl) notifyParentResize(false);
 } // end buildUI
 
 /* ===== utility functions ===== */
