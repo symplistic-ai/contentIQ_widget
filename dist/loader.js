@@ -25,7 +25,7 @@
     WIDGET_CDN_ORIGIN = new URL(scriptSrc).origin;
   } catch (e) {}
 
-  var EMBED_URL = WIDGET_CDN_ORIGIN + '/embed.html?v=20260604f';
+  var EMBED_URL = WIDGET_CDN_ORIGIN + '/embed.html?v=20260604g';
   var PARENT_ORIGIN = window.location.origin;
 
   var BUBBLE_SIZE = { width: '72px', height: '72px' };

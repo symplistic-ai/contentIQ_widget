@@ -863,6 +863,28 @@
   }
 
   /** Header slot image comes from launcherIcon only so brandName stays textual/independent. */
+  function appendHeaderBrandText(titleEl, text, headerColor) {
+    const displayText = text || 'symplistic.contentIQ';
+    const accentColor = customStyling.accentColor || 'var(--ciq-blue)';
+    const dot = displayText.indexOf('.');
+    if (dot > 0 && dot < displayText.length - 1) {
+      const primary = document.createElement('span');
+      primary.style.color = headerColor;
+      primary.textContent = displayText.slice(0, dot);
+      const accent = document.createElement('span');
+      accent.style.color = accentColor;
+      accent.textContent = displayText.slice(dot);
+      titleEl.appendChild(primary);
+      titleEl.appendChild(accent);
+      return;
+    }
+
+    const span = document.createElement('span');
+    span.style.color = headerColor;
+    span.textContent = displayText;
+    titleEl.appendChild(span);
+  }
+
   function setHeaderBrandTitle(titleEl, headerColor) {
     titleEl.replaceChildren();
     const fallbackText = headerBrandTextForDisplay();
@@ -874,17 +896,11 @@
       img.style.cssText = 'max-height:32px;width:auto;object-fit:contain;display:block;';
       img.onerror = () => {
         img.remove();
-        const span = document.createElement('span');
-        span.style.color = headerColor;
-        span.textContent = fallbackText;
-        titleEl.appendChild(span);
+        appendHeaderBrandText(titleEl, fallbackText, headerColor);
       };
       titleEl.appendChild(img);
     } else {
-      const span = document.createElement('span');
-      span.style.color = headerColor;
-      span.textContent = fallbackText;
-      titleEl.appendChild(span);
+      appendHeaderBrandText(titleEl, fallbackText, headerColor);
     }
   }
 
