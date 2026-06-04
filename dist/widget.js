@@ -909,6 +909,10 @@
     return brandNameToImageSrc(customStyling.launcherIcon);
   }
 
+  function launcherBackgroundColor() {
+    return customStyling.headerColor || customStyling.textColor || '#111827';
+  }
+
   /** Bot message avatars: initial letter only so header logo/icon stays independent. */
   function setAgentAvatarLetterOrBrandImage(av) {
     av.style.overflow = '';
@@ -1426,12 +1430,14 @@ chatIcon = document.createElement('div');
 chatIcon.dataset.ciqLauncher = 'true';
 chatIcon.style.cssText = `
 width: ${sendBtnBase}px; height: ${sendBtnBase}px; border-radius: 50%;
-background: var(--ciq-blue); color:#fff; font-weight:700; font-size:${Math.round(18 * iconScale)}px;
+background: ${launcherBackgroundColor()}; color:#fff; font-weight:700; font-size:${Math.round(18 * iconScale)}px;
 display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
 cursor: grab;
 `;
 function setClosedLauncherIcon(el) {
+  el.style.background = launcherBackgroundColor();
+  el.style.backgroundColor = launcherBackgroundColor();
   const imgSrc = widgetIconImageSrc();
   el.replaceChildren();
   if (imgSrc) {
