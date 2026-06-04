@@ -2582,7 +2582,7 @@ try {
   const res = await fetch(BACKEND + '/api/widget/feedback', {
     method: 'POST',
     headers: feedbackHeaders,
-    credentials: 'include',
+    credentials: ssoRequired ? 'include' : 'omit',
     body: JSON.stringify({
       ...auth,
       thread_id: threadId,
@@ -2652,7 +2652,7 @@ try{
   const res = await fetch(BACKEND + '/api/widget/chat', {
     method:'POST',
     headers: chatHeaders,
-    credentials: 'include',
+    credentials: ssoRequired ? 'include' : 'omit',
     body: JSON.stringify({ ...auth, message })
   });
 
