@@ -906,7 +906,7 @@
 
   /** Image for floating launcher / closed FAB only (not message avatars). */
   function widgetIconImageSrc() {
-    return brandNameToImageSrc(customStyling.launcherIcon) || brandNameToImageSrc(customStyling.brandName);
+    return brandNameToImageSrc(customStyling.launcherIcon);
   }
 
   /** Bot message avatars: initial letter only so header logo/icon stays independent. */
