@@ -1815,6 +1815,28 @@ function parseCssColorToRgb(cssColor) {
   return { r, g, b, a };
 }
 
+function parseHexColor(hex) {
+  if (!hex || typeof hex !== 'string') return null;
+  const h = hex.trim().replace(/^#/, '');
+  if (h.length === 3) {
+    return {
+      r: parseInt(h[0] + h[0], 16),
+      g: parseInt(h[1] + h[1], 16),
+      b: parseInt(h[2] + h[2], 16),
+      a: 1,
+    };
+  }
+  if (h.length === 6) {
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      b: parseInt(h.slice(4, 6), 16),
+      a: 1,
+    };
+  }
+  return null;
+}
+
 function relativeLuminance255(r, g, b) {
   const lin = [r, g, b].map((c) => {
     c = c / 255;
@@ -1823,11 +1845,12 @@ function relativeLuminance255(r, g, b) {
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
-function getEffectiveCellBackgroundRgb(el) {
+function getEffectiveCellBackgroundRgb(el, baseRgb, stopAt) {
   const layers = [];
   let n = el;
   let depth = 0;
   while (n && depth < 14) {
+    if (stopAt && n === stopAt) break;
     const bg = window.getComputedStyle(n).backgroundColor;
     const rgba = parseCssColorToRgb(bg);
     if (rgba && rgba.a > 0.02) {
@@ -1836,7 +1859,7 @@ function getEffectiveCellBackgroundRgb(el) {
     n = n.parentElement;
     depth++;
   }
-  let base = { r: 255, g: 255, b: 255 };
+  let base = baseRgb || { r: 255, g: 255, b: 255 };
   for (let i = layers.length - 1; i >= 0; i--) {
     const L = layers[i];
     const a = L.a;
@@ -1849,9 +1872,26 @@ function getEffectiveCellBackgroundRgb(el) {
   return base;
 }
 
-function applyTableTextContrast(root) {
-  if (!root || !root.querySelectorAll) return;
-  const cells = root.querySelectorAll('.table-wrapper th, .table-wrapper td');
+function resolveBubbleBackgroundRgb(bubble, isUser) {
+  const computed = bubble && window.getComputedStyle
+    ? parseCssColorToRgb(window.getComputedStyle(bubble).backgroundColor)
+    : null;
+  if (computed && computed.a > 0.02) {
+    return { r: computed.r, g: computed.g, b: computed.b };
+  }
+  const fallbackHex = isUser
+    ? (customStyling.userBubbleColor || '#246BFD')
+    : (customStyling.agentBubbleColor || '#1a1a1a');
+  const parsed = parseHexColor(fallbackHex) || parseCssColorToRgb(fallbackHex);
+  if (parsed) {
+    return { r: parsed.r, g: parsed.g, b: parsed.b };
+  }
+  return isUser ? { r: 36, g: 107, b: 253 } : { r: 26, g: 26, b: 26 };
+}
+
+function applyTableTextContrast(bubble, isUser = false) {
+  if (!bubble || !bubble.querySelectorAll) return;
+  const cells = bubble.querySelectorAll('.table-wrapper th, .table-wrapper td');
   if (!cells.length) return;
 
   const DARK = '#0f172a';
@@ -1860,9 +1900,10 @@ function applyTableTextContrast(root) {
   const LIGHT_HEAD = '#e5e7eb';
   const LINK_ON_LIGHT = '#0b0b0c';
   const LINK_ON_DARK = '#93c5fd';
+  const bubbleBase = resolveBubbleBackgroundRgb(bubble, isUser);
 
   cells.forEach((cell) => {
-    const { r, g, b } = getEffectiveCellBackgroundRgb(cell);
+    const { r, g, b } = getEffectiveCellBackgroundRgb(cell, bubbleBase, bubble);
     const L = relativeLuminance255(r, g, b);
     const darkText = L > 0.42;
     const isTh = cell.tagName === 'TH';
@@ -2467,8 +2508,6 @@ bubble.style.cssText = `
   box-shadow:${isUser ? '0 12px 28px rgba(36,107,253,.30)' : '0 8px 22px rgba(0,0,0,.3)'};
 `;
 bubble.innerHTML = parseMarkdown(messageWithoutSources);
-applyTableTextContrast(bubble);
-applyTableOverflowHint(bubble);
 
 messageContainer.appendChild(bubble);
 
@@ -2498,6 +2537,10 @@ if (sources && sources.length > 0) {
 
 row.append(av, messageContainer);
 chatArea.appendChild(row);
+requestAnimationFrame(() => {
+  applyTableTextContrast(bubble, isUser);
+  applyTableOverflowHint(bubble);
+});
 chatArea.scrollTop = chatArea.scrollHeight;
 }
 
