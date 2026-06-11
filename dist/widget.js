@@ -853,6 +853,56 @@
     return brandNameToImageSrc(s) !== null;
   }
 
+  function relativeLuminanceRgb(r, g, b) {
+    const lin = (c) => {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+
+  /** Pick near-black or near-white foreground for a solid background sample. */
+  function foregroundColorForBackgroundSample(cssColor) {
+    if (!cssColor || typeof cssColor !== 'string') return '#ffffff';
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;left:-9999px;visibility:hidden;color:' + cssColor;
+    document.body.appendChild(probe);
+    const rgbStr = getComputedStyle(probe).color;
+    probe.remove();
+    const m = rgbStr.match(/rgba?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+    if (!m) return '#ffffff';
+    let r = +m[1], g = +m[2], b = +m[3];
+    const a = m[4] !== undefined ? +m[4] : 1;
+    if (a < 1) {
+      r = Math.round(r * a + 255 * (1 - a));
+      g = Math.round(g * a + 255 * (1 - a));
+      b = Math.round(b * a + 255 * (1 - a));
+    }
+    return relativeLuminanceRgb(r, g, b) > 0.45 ? '#0b0b0c' : '#ffffff';
+  }
+
+  function sampleChatBackgroundColor() {
+    const bg = customStyling.backgroundColor || customStyling.plainBackground;
+    if (!bg || typeof bg !== 'string') return '#111827';
+    const t = bg.trim();
+    if (t === 'transparent') return '#ffffff';
+    if (t.includes('gradient')) {
+      const match = t.match(/#[0-9A-Fa-f]{3,8}\b|rgba?\([^)]+\)/);
+      return match ? match[0] : '#111827';
+    }
+    return t;
+  }
+
+  /** Header title text color — contrasts with chat shell background, not launcher icon color. */
+  function headerBrandTextColor() {
+    return foregroundColorForBackgroundSample(sampleChatBackgroundColor());
+  }
+
+  /** Close / resize controls — same contrast rule as header brand text. */
+  function headerChromeColorValue() {
+    return headerBrandTextColor();
+  }
+
   /** Header title text: brandName unless it is only used as a legacy image payload. */
   function headerBrandTextForDisplay() {
     const fallback = 'symplistic.contentIQ';
@@ -863,13 +913,14 @@
   }
 
   /** Header slot image comes from launcherIcon only so brandName stays textual/independent. */
-  function appendHeaderBrandText(titleEl, text, headerColor) {
+  function appendHeaderBrandText(titleEl, text) {
     const displayText = text || 'symplistic.contentIQ';
+    const brandColor = headerBrandTextColor();
     const accentColor = customStyling.accentColor || 'var(--ciq-blue)';
     const dot = displayText.indexOf('.');
     if (dot > 0 && dot < displayText.length - 1) {
       const primary = document.createElement('span');
-      primary.style.color = headerColor;
+      primary.style.color = brandColor;
       primary.textContent = displayText.slice(0, dot);
       const accent = document.createElement('span');
       accent.style.color = accentColor;
@@ -880,12 +931,12 @@
     }
 
     const span = document.createElement('span');
-    span.style.color = headerColor;
+    span.style.color = brandColor;
     span.textContent = displayText;
     titleEl.appendChild(span);
   }
 
-  function setHeaderBrandTitle(titleEl, headerColor) {
+  function setHeaderBrandTitle(titleEl) {
     titleEl.replaceChildren();
     const fallbackText = headerBrandTextForDisplay();
     const imgSrc = brandNameToImageSrc(customStyling.launcherIcon);
@@ -896,11 +947,11 @@
       img.style.cssText = 'max-height:32px;width:auto;object-fit:contain;display:block;';
       img.onerror = () => {
         img.remove();
-        appendHeaderBrandText(titleEl, fallbackText, headerColor);
+        appendHeaderBrandText(titleEl, fallbackText);
       };
       titleEl.appendChild(img);
     } else {
-      appendHeaderBrandText(titleEl, fallbackText, headerColor);
+      appendHeaderBrandText(titleEl, fallbackText);
     }
   }
 
@@ -910,7 +961,11 @@
   }
 
   function launcherBackgroundColor() {
-    return customStyling.headerColor || customStyling.textColor || '#111827';
+    return customStyling.headerColor || customStyling.accentColor || '#246BFD';
+  }
+
+  function launcherForegroundColor() {
+    return foregroundColorForBackgroundSample(launcherBackgroundColor());
   }
 
   /** Bot message avatars: initial letter only so header logo/icon stays independent. */
@@ -960,14 +1015,8 @@ text-align:center;                       /* ensure text centers with logo */
 position: relative;
 `;
 
-/* Header chrome (close / resize) – visible on light and dark headers */
-const headerChromeColor = (() => {
-  const hc = (customStyling.headerColor || '').toLowerCase();
-  if (hc === '#fff' || hc === '#ffffff' || hc === 'white') {
-    return customStyling.textColor || '#111827';
-  }
-  return customStyling.headerColor || customStyling.textColor || '#111827';
-})();
+/* Header chrome (close / resize) – contrast with chat shell background */
+const headerChromeColor = headerChromeColorValue();
 
 /* Close button */
 const closeButton = document.createElement('button');
@@ -1033,7 +1082,7 @@ toggleResize();
 };
 const title = document.createElement('div');
 title.dataset.ciqHeaderBrand = 'true';
-setHeaderBrandTitle(title, customStyling.headerColor);
+setHeaderBrandTitle(title);
 title.style.cssText = `
 font-weight: 800; font-size: 18px; letter-spacing:.2px; margin-top: 10px;
 display:flex; align-items:center; justify-content:center;
@@ -1430,7 +1479,7 @@ chatIcon = document.createElement('div');
 chatIcon.dataset.ciqLauncher = 'true';
 chatIcon.style.cssText = `
 width: ${sendBtnBase}px; height: ${sendBtnBase}px; border-radius: 50%;
-background: ${launcherBackgroundColor()}; color:#fff; font-weight:700; font-size:${Math.round(18 * iconScale)}px;
+background: ${launcherBackgroundColor()}; color:${launcherForegroundColor()}; font-weight:700; font-size:${Math.round(18 * iconScale)}px;
 display:flex; align-items:center; justify-content:center;
 box-shadow: 0 10px 22px rgba(36,107,253,.35);
 cursor: grab;
@@ -1438,6 +1487,7 @@ cursor: grab;
 function setClosedLauncherIcon(el) {
   el.style.background = launcherBackgroundColor();
   el.style.backgroundColor = launcherBackgroundColor();
+  el.style.color = launcherForegroundColor();
   const imgSrc = widgetIconImageSrc();
   el.replaceChildren();
   if (imgSrc) {
