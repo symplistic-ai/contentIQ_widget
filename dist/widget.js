@@ -961,11 +961,11 @@
   }
 
   function launcherBackgroundColor() {
-    return customStyling.headerColor || customStyling.accentColor || '#246BFD';
+    return customStyling.accentColor || customStyling.userBubbleColor || '#246BFD';
   }
 
   function launcherForegroundColor() {
-    return foregroundColorForBackgroundSample(launcherBackgroundColor());
+    return '#ffffff';
   }
 
   /** Bot message avatars: initial letter only so header logo/icon stays independent. */
