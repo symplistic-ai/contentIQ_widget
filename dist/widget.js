@@ -44,6 +44,7 @@
   let collapseToBubble = null;
   let isOpen = false;
   let isExpanded = false;
+  let isSendingMessage = false;
   const MOBILE_BREAKPOINT = 640;
   const AGENT_ID = IFRAME_MODE ? embedConfig.agent_id : ROOT.dataset.agent;
   const BACKEND = IFRAME_MODE
@@ -969,11 +970,27 @@
   }
 
   /** Bot message avatars: initial letter only so header logo/icon stays independent. */
+  function getAgentAvatarLetter() {
+    const name = String(customStyling.agentName || 'ContentIQ').trim();
+    return (name.charAt(0) || 'C').toUpperCase();
+  }
+
   function setAgentAvatarLetterOrBrandImage(av) {
     av.style.overflow = '';
     av.style.padding = '';
     av.replaceChildren();
-    av.textContent = (customStyling.agentName || 'ContentIQ').charAt(0).toUpperCase();
+    av.textContent = getAgentAvatarLetter();
+  }
+
+  function setChatInputEnabled(enabled) {
+    if (!input || !sendButton) return;
+    input.disabled = !enabled;
+    sendButton.disabled = !enabled;
+    input.style.opacity = enabled ? '1' : '0.6';
+    input.style.cursor = enabled ? 'text' : 'not-allowed';
+    sendButton.style.opacity = enabled ? '1' : '0.55';
+    sendButton.style.cursor = enabled ? 'pointer' : 'not-allowed';
+    sendButton.style.pointerEvents = enabled ? 'auto' : 'none';
   }
 
   function buildUI() {
@@ -2595,8 +2612,9 @@ chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 function addTypingIndicator() {
-  const row = document.createElement('div'); 
-  row.id = 'typing-indicator';
+  removeTypingIndicator();
+  const row = document.createElement('div');
+  row.className = 'ciq-typing-indicator';
   row.style.cssText = `
     display:flex; align-items:flex-start; gap:12px; margin: 0 0 20px;
   `;
@@ -2660,10 +2678,8 @@ function addTypingIndicator() {
 }
 
 function removeTypingIndicator() {
-  const typingIndicator = document.getElementById('typing-indicator');
-  if (typingIndicator) {
-    typingIndicator.remove();
-  }
+  if (!chatArea) return;
+  chatArea.querySelectorAll('.ciq-typing-indicator').forEach((el) => el.remove());
 }
 
 async function sendFeedback(messageId, feedbackType) {
@@ -2733,6 +2749,11 @@ try {
 
 async function sendMessage(message){
 if(!message.trim()) return;
+if (isSendingMessage) return;
+
+isSendingMessage = true;
+setChatInputEnabled(false);
+
 addMessage(message, true);
 input.value = '';
 
@@ -2783,7 +2804,13 @@ try{
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
-    const errMsg = errData.error || `Error: ${res.status}`;
+    let errMsg = errData.error || `Error: ${res.status}`;
+    if (res.status === 429) {
+      const retryAfter = Number(errData.retry_after);
+      errMsg = retryAfter > 0
+        ? `You're sending messages too quickly. Please wait ${retryAfter} second${retryAfter === 1 ? '' : 's'} and try again.`
+        : "You're sending messages too quickly. Please wait a moment and try again.";
+    }
     if (
       res.status === 403 &&
       ssoRequired &&
@@ -2888,6 +2915,9 @@ try{
   addMessage('Sorry, I encountered an error. Please try again.', false, null);
   console.error('[contentIQ widget] Network or other error:', e);
 
+} finally {
+  isSendingMessage = false;
+  setChatInputEnabled(true);
 }
 }
 
