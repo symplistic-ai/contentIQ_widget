@@ -2314,10 +2314,19 @@ function createSourceCards(sources, expanded = false) {
       min-height: 60px;
       box-sizing: border-box;
     `;
-    sourceDescription.textContent = source.description;
+  sourceDescription.textContent = source.description;
 
-    sourceCard.appendChild(sourceHeader);
-    sourceCard.appendChild(sourceDescription);
+  sourceCard.appendChild(sourceHeader);
+  if (source.title) {
+    const sourceTitle = document.createElement('div');
+    sourceTitle.style.cssText = `
+      color: #ffffff; font-size: 13px; font-weight: 600; line-height: 1.35;
+      margin-bottom: 6px; word-wrap: break-word; overflow-wrap: break-word;
+    `;
+    sourceTitle.textContent = source.title;
+    sourceCard.appendChild(sourceTitle);
+  }
+  sourceCard.appendChild(sourceDescription);
     scrollableArea.appendChild(sourceCard);
   });
 
@@ -2525,7 +2534,7 @@ actionIcons.style.cssText = `display:flex; gap:12px; align-items:center; margin-
 return actionIcons;
 }
 
-function addMessage(message, isUser=false, serverMessageId=null){
+function addMessage(message, isUser=false, serverMessageId=null, structuredSources=null){
 const row = document.createElement('div');
 row.style.cssText = `
   display:flex; align-items:flex-start; gap:12px; margin: 0 0 20px;
@@ -2553,7 +2562,10 @@ const messageContainer = document.createElement('div');
 messageContainer.style.cssText = `flex:1; display:flex; flex-direction:column; align-items:${isUser ? 'flex-end' : 'flex-start'};`;
 
 // Parse sources from the message
-const sources = !isUser ? parseSources(message) : [];
+const normalizedSources = normalizeStructuredSources(structuredSources);
+const sources = !isUser
+  ? (normalizedSources.length ? normalizedSources : parseSources(message))
+  : [];
 const messageWithoutSources = !isUser ? stripSourceSectionsFromMessage(message) : message;
 
 const bubble = document.createElement('div');
@@ -2682,6 +2694,164 @@ function removeTypingIndicator() {
   chatArea.querySelectorAll('.ciq-typing-indicator').forEach((el) => el.remove());
 }
 
+function createContentIQTurnId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID().replace(/-/g, '');
+  }
+  return `widget_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeStructuredSources(sources) {
+  if (!Array.isArray(sources)) return [];
+  return sources.map((source, index) => ({
+    source_id: String(source?.source_id || source?.id || '').trim(),
+    number: String(source?.number || source?.citation_number || index + 1),
+    url: String(source?.url || source?.citation_url || '#').trim() || '#',
+    title: String(source?.title || source?.display_source || source?.filename || '').trim(),
+    description: String(
+      source?.citation_text || source?.description || source?.snippet || source?.content || source?.title || `Source ${index + 1}`
+    ).trim(),
+  }));
+}
+
+function decorateAnswerWithCitations(text, citationState) {
+  const answer = String(text || '');
+  if (!citationState || !Array.isArray(citationState.mappings)) return answer;
+  const sourceNumbers = new Map(
+    (citationState.sources || []).map((source) => [
+      String(source?.source_id || ''), String(source?.number || ''),
+    ])
+  );
+  const insertions = new Map();
+  citationState.mappings.forEach((mapping) => {
+    const start = Number(mapping?.start);
+    const end = Number(mapping?.end);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > answer.length) return;
+    const mappedSources = Array.isArray(mapping.sources)
+      ? mapping.sources
+      : (mapping.source_ids || []).map((sourceId) => ({ source_id: sourceId }));
+    const markers = [...new Set(mappedSources
+      .map((source) => sourceNumbers.get(String(source?.source_id || '')))
+      .filter(Boolean))]
+      .map((number) => `[${number}]`).join('');
+    if (markers) insertions.set(end, `${insertions.get(end) || ''}${markers}`);
+  });
+  return [...insertions.entries()]
+    .map(([end, markers]) => ({ end, markers }))
+    .sort((a, b) => b.end - a.end)
+    .reduce((result, { end, markers }) => `${result.slice(0, end)}${markers}${result.slice(end)}`, answer);
+}
+
+function createWidgetReasoningPanel() {
+  const section = document.createElement('div');
+  section.className = 'reasoning-section';
+  section.style.cssText = `
+    margin-bottom: 8px; background: transparent; border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 8px;
+  `;
+
+  const header = document.createElement('div');
+  header.className = 'reasoning-header';
+  header.style.cssText = `
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px;
+    background: #f8f9fa; border-radius: 6px 6px 0 0;
+    border-bottom: 2px solid var(--brand, #0b0b0c); cursor: pointer;
+    user-select: none; transition: background 0.2s ease;
+  `;
+  header.addEventListener('mouseenter', () => { header.style.background = '#f1f5f9'; });
+  header.addEventListener('mouseleave', () => { header.style.background = '#f8f9fa'; });
+
+  const chevron = document.createElement('span');
+  chevron.className = 'reasoning-chevron';
+  chevron.textContent = '▶';
+  chevron.style.cssText = `
+    color: #6b7280; font-size: 10px; transition: transform 0.2s ease;
+    display: inline-block;
+  `;
+
+  const title = document.createElement('span');
+  title.className = 'reasoning-title';
+  title.textContent = 'Reasoning';
+  title.style.cssText = `
+    color: #374151; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.3px;
+  `;
+
+  const content = document.createElement('div');
+  content.className = 'reasoning-content';
+  content.style.cssText = `
+    color: #4b5563; font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, sans-serif; padding: 12px 0 0;
+    min-height: 20px; display: none; overflow: hidden;
+  `;
+  const placeholder = document.createElement('span');
+  placeholder.textContent = 'Thinking...';
+  placeholder.style.cssText = 'color:#9ca3af;font-style:italic;';
+  content.appendChild(placeholder);
+  let hasProgress = false;
+
+  header.append(chevron, title);
+  section.append(header, content);
+  header.addEventListener('click', () => {
+    const expanded = section.classList.toggle('expanded');
+    content.style.display = expanded ? 'block' : 'none';
+    chevron.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+  });
+  chatArea.appendChild(section);
+
+  return {
+    append(message) {
+      const text = String(message || '').trim();
+      if (!text || content.textContent.includes(text)) return;
+      if (!hasProgress) {
+        content.textContent = '';
+        hasProgress = true;
+      }
+      content.textContent += `${content.textContent ? '\n\n' : ''}${text}`;
+      chatArea.scrollTop = chatArea.scrollHeight;
+    },
+    finish() {
+      if (!hasProgress) section.remove();
+    },
+  };
+}
+
+function pollContentIQTurnProgress(turnId, { onEvent, onSources } = {}) {
+  let stopped = false;
+  let timer = null;
+  let lastSeq = 0;
+
+  const poll = async () => {
+    if (stopped) return;
+    try {
+      const url = `${BACKEND}/api/external/contentiq-tool-progress/${encodeURIComponent(turnId)}?since=${lastSeq}`;
+      const response = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (response.ok) {
+        const payload = await response.json();
+        (Array.isArray(payload.events) ? payload.events : []).forEach((event) => {
+          const seq = Number(event?.seq) || 0;
+          if (seq > lastSeq) lastSeq = seq;
+          onEvent?.(event);
+        });
+        if (Array.isArray(payload.sources) && payload.sources.length) {
+          onSources?.(payload.sources);
+        }
+        if (payload.done) return;
+      }
+    } catch (_error) {
+      // Progress is best-effort; the widget chat response remains authoritative.
+    }
+    if (!stopped) timer = setTimeout(poll, 750);
+  };
+
+  poll();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
+}
+
 async function sendFeedback(messageId, feedbackType) {
 if (!messageId || !feedbackType) {
   console.error('[contentIQ widget] Missing messageId or feedbackType for feedback');
@@ -2756,6 +2926,10 @@ setChatInputEnabled(false);
 
 addMessage(message, true);
 input.value = '';
+const turnId = createContentIQTurnId();
+let structuredSources = [];
+let stopProgressPolling = () => {};
+const reasoningPanel = createWidgetReasoningPanel();
 
 // Check if thread has timed out before sending message
 const threadTimedOut = checkThreadTimeout();
@@ -2785,11 +2959,16 @@ try{
     'X-Session-Id': sessionId || 'new'
   });
 
+  stopProgressPolling = pollContentIQTurnProgress(turnId, {
+    onEvent: (event) => reasoningPanel.append(event?.message),
+    onSources: (sources) => { structuredSources = sources; },
+  });
+
   const res = await fetch(BACKEND + '/api/widget/chat', {
     method:'POST',
     headers: chatHeaders,
     credentials: ssoRequired ? 'include' : 'omit',
-    body: JSON.stringify({ ...auth, message })
+    body: JSON.stringify({ ...auth, message, turn_id: turnId })
   });
 
   // Remove typing indicator before processing response
@@ -2827,6 +3006,15 @@ try{
   // Parse response as JSON to get session_id and message
   const responseData = await res.json();
   const cleanedText = cleanResponse(responseData.assistant);
+  (Array.isArray(responseData.progress_events) ? responseData.progress_events : [])
+    .forEach((event) => reasoningPanel.append(event?.message));
+  const responseSources = Array.isArray(responseData.sources) ? responseData.sources : [];
+  if (responseSources.length) structuredSources = responseSources;
+  const citationState = responseData.citations && responseData.citations.status === 'complete'
+    ? responseData.citations
+    : null;
+  const displayText = decorateAnswerWithCitations(cleanedText, citationState);
+  if (citationState && Array.isArray(citationState.sources)) structuredSources = citationState.sources;
 
   // Get the message ID from the response if available
   const messageId = responseData.message_id;
@@ -2851,7 +3039,7 @@ try{
 
   // Add the message to the UI with the server's message ID
   // If messageId is undefined, null, or empty, addMessage will generate a random UUID
-  addMessage(cleanedText, false, messageId);
+  addMessage(displayText, false, messageId, structuredSources);
 
   // Store the message ID for later use - make sure it's the server's ID
   const finalMessageId = messageId;
@@ -2916,6 +3104,8 @@ try{
   console.error('[contentIQ widget] Network or other error:', e);
 
 } finally {
+  stopProgressPolling();
+  reasoningPanel.finish();
   isSendingMessage = false;
   setChatInputEnabled(true);
 }
