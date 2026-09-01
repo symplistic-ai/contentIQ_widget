@@ -2838,7 +2838,8 @@ function createWidgetReasoningPanel() {
       chatArea.scrollTop = chatArea.scrollHeight;
     },
     finish() {
-      if (!hasProgress) section.remove();
+      // Keep the reasoning section visible even when this turn has no
+      // ContentIQ progress messages. wxO does not provide native reasoning.
     },
   };
 }
