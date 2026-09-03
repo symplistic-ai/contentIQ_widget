@@ -1769,14 +1769,68 @@ try {
 }
 }
 
+function normalizeMarkdownSpacingArtifacts(markdown) {
+  let insideFence = false;
+  const orderedListState = new Map();
+  const normalizedLines = String(markdown || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/&lt;br\s*\/?&gt;/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .split('\n')
+    .flatMap((originalLine) => {
+      if (/^[\t ]*```/.test(originalLine)) {
+        insideFence = !insideFence;
+        return [originalLine];
+      }
+      if (insideFence) return [originalLine];
+
+      let line = originalLine
+        .replace(/(?:&#x0*20;|&#0*32;|&nbsp;)/gi, ' ')
+        .replace(/[\t ]+$/g, '');
+      const terminalBackslashes = line.match(/\\+$/)?.[0] || '';
+      if (terminalBackslashes.length % 2 === 1) {
+        line = line.slice(0, -1).replace(/[\t ]+$/g, '');
+      }
+
+      // Do not render transport/serialization spacer rows as real list items.
+      const emptyOrderedItem = line.match(/^([\t ]*)(\d+)([.)])[\t ]*$/);
+      if (emptyOrderedItem) {
+        const indentation = emptyOrderedItem[1];
+        const value = Number(emptyOrderedItem[2]);
+        const state = orderedListState.get(indentation) || { lastValue: null, removed: 0 };
+        if (state.lastValue !== null && value <= state.lastValue) state.removed = 0;
+        state.lastValue = value;
+        state.removed += 1;
+        orderedListState.set(indentation, state);
+        return [];
+      }
+      if (/^[\t ]*[-+*][\t ]*$/.test(line)) return [];
+
+      const orderedItem = line.match(/^([\t ]*)(\d+)([.)])([\t ]+)(.+)$/);
+      if (orderedItem) {
+        const indentation = orderedItem[1];
+        const value = Number(orderedItem[2]);
+        const state = orderedListState.get(indentation) || { lastValue: null, removed: 0 };
+        if (state.lastValue !== null && value <= state.lastValue) state.removed = 0;
+        const repairedValue = Math.max(1, value - state.removed);
+        state.lastValue = value;
+        orderedListState.set(indentation, state);
+        if (repairedValue !== value) {
+          line = `${indentation}${repairedValue}${orderedItem[3]}${orderedItem[4]}${orderedItem[5]}`;
+        }
+      }
+      return [line];
+    });
+
+  return normalizedLines.join('\n')
+    .replace(/\n[\t ]*\n(?:[\t ]*\n)+/g, '\n\n');
+}
+
 function parseMarkdown(text) {
   if (!text) return '';
 
   // Escape HTML to prevent XSS
-  let html = text
-    .replace(/\r\n?/g, '\n')
-    .replace(/^[\t ]*\\[\t ]*$/gm, '')
-    .replace(/\n[\t ]*\n(?:[\t ]*\n)+/g, '\n\n')
+  let html = normalizeMarkdownSpacingArtifacts(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
