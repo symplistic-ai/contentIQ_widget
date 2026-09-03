@@ -2835,17 +2835,18 @@ function normalizeStructuredSources(sources) {
 
 function decorateAnswerWithCitations(text, citationState) {
   const answer = String(text || '');
-  if (!citationState || !Array.isArray(citationState.mappings)) return answer;
+  const renderableMappings = getRenderableCitationMappings(answer, citationState);
+  if (renderableMappings.length === 0) return answer;
   const sourceNumbers = new Map(
     (citationState.sources || []).map((source) => [
       String(source?.source_id || ''), String(source?.number || ''),
     ])
   );
   const insertions = new Map();
-  citationState.mappings.forEach((mapping) => {
-    const start = Number(mapping?.start);
-    const end = Number(mapping?.end);
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > answer.length) return;
+  renderableMappings.forEach((mapping) => {
+    const start = mapping?.start;
+    const end = mapping?.end;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start >= end || end > answer.length) return;
     const mappedSources = Array.isArray(mapping.sources)
       ? mapping.sources
       : (mapping.source_ids || []).map((sourceId) => ({ source_id: sourceId }));
@@ -2859,6 +2860,31 @@ function decorateAnswerWithCitations(text, citationState) {
     .map(([end, markers]) => ({ end, markers }))
     .sort((a, b) => b.end - a.end)
     .reduce((result, { end, markers }) => `${result.slice(0, end)}${markers}${result.slice(end)}`, answer);
+}
+
+function getRenderableCitationMappings(text, citationState) {
+  const answer = String(text || '');
+  if (!citationState || !Array.isArray(citationState.mappings)) return [];
+  const sourceNumbers = new Map(
+    (citationState.sources || []).map((source) => [
+      String(source?.source_id || ''), String(source?.number || ''),
+    ])
+  );
+  const claimsById = new Map(
+    (citationState.claims || []).map((claim) => [String(claim.claim_id), claim])
+  );
+  return citationState.mappings.filter((mapping) => {
+    if (!mapping || typeof mapping !== 'object') return false;
+    const start = mapping?.start;
+    const end = mapping?.end;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start >= end || end > answer.length) return false;
+    const claim = claimsById.get(String(mapping.claim_id));
+    if (claim && typeof claim.text === 'string' && answer.slice(start, end) !== claim.text) return false;
+    const mappedSources = Array.isArray(mapping.sources)
+      ? mapping.sources
+      : (mapping.source_ids || []).map((sourceId) => ({ source_id: sourceId }));
+    return mappedSources.some((source) => sourceNumbers.has(String(source?.source_id || '')) && sourceNumbers.get(String(source?.source_id || '')));
+  });
 }
 
 function createWidgetReasoningPanel() {
@@ -2931,7 +2957,8 @@ function createWidgetReasoningPanel() {
       chatArea.scrollTop = chatArea.scrollHeight;
     },
     finish() {
-      if (!hasProgress) section.remove();
+      // Keep the reasoning section visible even when this turn has no
+      // ContentIQ progress messages. wxO does not provide native reasoning.
     },
   };
 }
@@ -3128,12 +3155,15 @@ try{
   (Array.isArray(responseData.progress_events) ? responseData.progress_events : [])
     .forEach((event) => reasoningPanel.append(event?.message));
   const responseSources = Array.isArray(responseData.sources) ? responseData.sources : [];
-  if (responseSources.length) structuredSources = responseSources;
+  const isStructuredContentIQ = responseData.source_channel === 'contentiq';
   const citationState = responseData.citations && responseData.citations.status === 'complete'
     ? responseData.citations
     : null;
+  const hasRenderableCitations = citationState && getRenderableCitationMappings(cleanedText, citationState).length > 0;
+  structuredSources = isStructuredContentIQ
+    ? (hasRenderableCitations && Array.isArray(citationState.sources) ? citationState.sources : [])
+    : responseSources;
   const displayText = decorateAnswerWithCitations(cleanedText, citationState);
-  if (citationState && Array.isArray(citationState.sources)) structuredSources = citationState.sources;
 
   // Get the message ID from the response if available
   const messageId = responseData.message_id;
