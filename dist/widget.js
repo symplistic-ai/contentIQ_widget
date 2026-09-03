@@ -1267,6 +1267,21 @@ _ciqStyle.textContent += `
 .contentiq_symplisticai_chat ul { 
   margin: 8px 0; 
   padding-left: 20px; 
+  list-style-type: disc;
+  list-style-position: outside;
+}
+.contentiq_symplisticai_chat ul ul {
+  list-style-type: circle;
+}
+.contentiq_symplisticai_chat ol {
+  margin: 8px 0;
+  padding-left: 20px;
+  list-style-type: decimal;
+}
+.contentiq_symplisticai_chat li > ul,
+.contentiq_symplisticai_chat li > ol {
+  margin-top: 4px;
+  margin-bottom: 0;
 }
 .contentiq_symplisticai_chat li { 
   margin: 4px 0; 
@@ -1759,6 +1774,9 @@ function parseMarkdown(text) {
 
   // Escape HTML to prevent XSS
   let html = text
+    .replace(/\r\n?/g, '\n')
+    .replace(/^[\t ]*\\[\t ]*$/gm, '')
+    .replace(/\n[\t ]*\n(?:[\t ]*\n)+/g, '\n\n')
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
@@ -1780,15 +1798,15 @@ function parseMarkdown(text) {
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
+  // Structure lists before emphasis so bullet asterisks remain list markers.
+  html = parseMarkdownLists(html);
+
   // Bold and italic
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
   // Tables
   html = parseMarkdownTables(html);
-
-  // Lists
-  html = parseMarkdownLists(html);
 
   // Blockquotes
   html = html.replace(/^> (.+)$/gim, '<blockquote>$1</blockquote>');
@@ -1799,6 +1817,9 @@ function parseMarkdown(text) {
 
   // Line breaks
   html = html.replace(/\n/g, '<br>');
+  html = html.replace(/(?:<br>\s*){3,}/g, '<br><br>');
+  html = html.replace(/(?:<br>\s*)+(?=<(?:ol|ul)(?:\s|>))/g, '');
+  html = html.replace(/(<\/(?:ol|ul)>)(?:<br>\s*)+/g, '$1');
 
   // Clean up trailing <br> tags that create unwanted spacing
   html = html.replace(/(<br>\s*)+$/g, '');
@@ -1839,22 +1860,120 @@ function parseMarkdownTables(html) {
 
 /* ───────────── Helper: Parse Markdown Lists ─────── */
 function parseMarkdownLists(html) {
-  // Handle bold text with dashes (like "**Term life insurance** — description")
-  html = html.replace(/\*\*(.+?)\*\* — (.+)/g, '<div class="list-item"><strong>$1</strong> — $2</div>');
+  if (!html) return html;
 
-  // Handle bold text with dashes (alternative format)
-  html = html.replace(/\*\*(.+?)\*\* – (.+)/g, '<div class="list-item"><strong>$1</strong> – $2</div>');
+  const lines = html.split('\n');
+  const output = [];
+  const stack = [];
+  let pendingBlankLines = 0;
+  let activeListHtml = '';
 
-  // Handle bold text with dashes (another alternative)
-  html = html.replace(/\*\*(.+?)\*\* - (.+)/g, '<div class="list-item"><strong>$1</strong> - $2</div>');
+  const appendListHtml = (fragment) => { activeListHtml += fragment; };
+  const flushListHtml = () => {
+    if (!activeListHtml) return;
+    output.push(activeListHtml);
+    activeListHtml = '';
+  };
+  const indentationWidth = (indentation) => {
+    let width = 0;
+    for (const character of indentation) width += character === '\t' ? 4 : 1;
+    return width;
+  };
+  const parseListLine = (line) => {
+    const ordered = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
+    if (ordered) {
+      return {
+        type: 'ol',
+        indent: indentationWidth(ordered[1]),
+        value: Number(ordered[2]),
+        content: ordered[3].trimEnd(),
+      };
+    }
+    const unordered = line.match(/^(\s*)\\?([*+-])\s+(.+)$/);
+    if (unordered) {
+      return {
+        type: 'ul',
+        indent: indentationWidth(unordered[1]),
+        value: null,
+        content: unordered[3].trimEnd(),
+      };
+    }
+    return null;
+  };
+  const closeTopList = () => {
+    const current = stack.pop();
+    if (!current) return;
+    if (current.liOpen) appendListHtml('</li>');
+    appendListHtml(`</${current.type}>`);
+  };
+  const openList = (item) => {
+    const startAttribute = item.type === 'ol' && item.value !== 1
+      ? ` start="${item.value}"`
+      : '';
+    appendListHtml(`<${item.type}${startAttribute}>`);
+    stack.push({ type: item.type, indent: item.indent, liOpen: false });
+  };
+  const openListItem = (item) => {
+    const current = stack[stack.length - 1];
+    if (current.liOpen) appendListHtml('</li>');
+    const valueAttribute = item.type === 'ol' ? ` value="${item.value}"` : '';
+    appendListHtml(`<li${valueAttribute}>${item.content}`);
+    current.liOpen = true;
+  };
 
-  // Keep ordered lists for numbered lists
-  html = html.replace(/^[\s]*\d+\. (.+)$/gim, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>[\s]*)+/g, (match) => {
-    return `<ol>${match}</ol>`;
-  });
+  for (const line of lines) {
+    const item = parseListLine(line);
+    if (!item) {
+      if (stack.length > 0 && line.trim() === '') {
+        pendingBlankLines += 1;
+        continue;
+      }
+      if (stack.length > 0) {
+        while (stack.length > 0) closeTopList();
+        flushListHtml();
+        while (pendingBlankLines > 0) {
+          output.push('');
+          pendingBlankLines -= 1;
+        }
+      }
+      output.push(line);
+      continue;
+    }
 
-  return html;
+    pendingBlankLines = 0;
+    if (stack.length === 0) {
+      openList(item);
+      openListItem(item);
+      continue;
+    }
+    while (stack.length > 0 && item.indent < stack[stack.length - 1].indent) {
+      closeTopList();
+    }
+    let current = stack[stack.length - 1];
+    if (!current) {
+      openList(item);
+      openListItem(item);
+      continue;
+    }
+    if (item.indent > current.indent) {
+      openList(item);
+      openListItem(item);
+      continue;
+    }
+    if (item.type !== current.type) {
+      closeTopList();
+      openList(item);
+    }
+    openListItem(item);
+  }
+
+  while (stack.length > 0) closeTopList();
+  flushListHtml();
+  while (pendingBlankLines > 0) {
+    output.push('');
+    pendingBlankLines -= 1;
+  }
+  return output.join('\n');
 }
 
 function stripSourceSectionsFromMessage(raw) {
