@@ -97,6 +97,12 @@
       sessionStorage.removeItem('contentiq_widget_sso_code_verifier_' + agentId);
       sessionStorage.removeItem('contentiq_widget_sso_embed_return');
       sessionStorage.setItem('contentiq_widget_session_established_' + agentId, '1');
+      var sessionToken = payload.visitor_session || payload.widget_session || '';
+      if (sessionToken) {
+        sessionStorage.setItem('contentiq_widget_session_' + agentId, sessionToken);
+      } else {
+        sessionStorage.removeItem('contentiq_widget_session_' + agentId);
+      }
       window.location.replace(returnUrl);
     }
 
