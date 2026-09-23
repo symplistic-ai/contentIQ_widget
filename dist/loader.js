@@ -28,25 +28,28 @@
   var EMBED_URL = WIDGET_CDN_ORIGIN + '/embed.html';
   var PARENT_ORIGIN = window.location.origin;
 
-  var BUBBLE_SIZE = { width: '72px', height: '72px' };
+  var BUBBLE_SIZE = { width: '64px', height: '64px' };
   var OPEN_SIZE = { width: '420px', height: '650px' };
   var MOBILE_OPEN = { width: '100vw', height: '100vh' };
+  var PANEL_RADIUS = '24px';
 
   var mount = document.createElement('div');
   mount.id = 'contentiq-widget-mount';
-  mount.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;pointer-events:none;';
+  mount.style.cssText =
+    'position:fixed;bottom:24px;right:24px;z-index:9999;pointer-events:none;background:transparent;';
   document.body.appendChild(mount);
 
   var iframe = document.createElement('iframe');
   iframe.title = 'symplistic.contentIQ chat';
   iframe.setAttribute('allow', 'clipboard-write');
+  iframe.setAttribute('allowtransparency', 'true');
   iframe.src = EMBED_URL;
   iframe.style.cssText =
-    'border:none;background:transparent;width:' +
+    'border:none;background:transparent;color-scheme:none;width:' +
     BUBBLE_SIZE.width +
     ';height:' +
     BUBBLE_SIZE.height +
-    ';pointer-events:auto;display:block;';
+    ';border-radius:50%;overflow:hidden;pointer-events:auto;display:block;';
   mount.appendChild(iframe);
 
   var lastResizeData = { width: BUBBLE_SIZE.width, height: BUBBLE_SIZE.height, open: false };
@@ -78,6 +81,7 @@
       mount.style.right = '0';
       iframe.style.width = MOBILE_OPEN.width;
       iframe.style.height = MOBILE_OPEN.height;
+      iframe.style.borderRadius = '0';
     } else {
       mount.style.bottom = '24px';
       mount.style.right = '24px';
@@ -87,6 +91,7 @@
       }
       iframe.style.width = typeof w === 'number' ? w + 'px' : w || BUBBLE_SIZE.width;
       iframe.style.height = typeof h === 'number' ? h + 'px' : h || BUBBLE_SIZE.height;
+      iframe.style.borderRadius = data.open ? PANEL_RADIUS : '50%';
     }
     if (iframe.contentWindow) {
       iframe.contentWindow.postMessage(
